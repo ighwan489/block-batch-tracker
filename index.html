@@ -9,7 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
   // 팀 공용 로그인용 내부 계정 이메일 (실제 메일함 아님, 로그인 ID로만 사용)
@@ -31,21 +31,65 @@
     try{
       const app = initializeApp(firebaseConfig);
       const db = getFirestore(app);
-      const recordsDocRef = doc(db, "blockTracker", "records");
+      const recordsCol = collection(db, "blockRecords");
 
-      window.fbSaveRecords = async function(records){
+      window.fbAddRecord = async function(record){
         try{
-          await setDoc(recordsDocRef, { records, updatedAt: new Date().toISOString() });
+          await setDoc(doc(recordsCol, record.id), record);
           return true;
         }catch(e){
-          console.error('Firestore save error:', e);
+          console.error('Firestore add error:', e);
+          return false;
+        }
+      };
+
+      window.fbUpdateRecord = async function(id, patch){
+        try{
+          await updateDoc(doc(recordsCol, id), patch);
+          return true;
+        }catch(e){
+          console.error('Firestore update error:', e);
+          return false;
+        }
+      };
+
+      window.fbDeleteRecord = async function(id){
+        try{
+          await deleteDoc(doc(recordsCol, id));
+          return true;
+        }catch(e){
+          console.error('Firestore delete error:', e);
+          return false;
+        }
+      };
+
+      window.fbBulkAdd = async function(records){
+        try{
+          const batch = writeBatch(db);
+          records.forEach(r => batch.set(doc(recordsCol, r.id), r));
+          await batch.commit();
+          return true;
+        }catch(e){
+          console.error('Firestore bulk add error:', e);
+          return false;
+        }
+      };
+
+      window.fbBulkUpdate = async function(ids, patch){
+        try{
+          const batch = writeBatch(db);
+          ids.forEach(id => batch.update(doc(recordsCol, id), patch));
+          await batch.commit();
+          return true;
+        }catch(e){
+          console.error('Firestore bulk update error:', e);
           return false;
         }
       };
 
       window.fbWatchRecords = function(onData, onError){
-        onSnapshot(recordsDocRef, (snap)=>{
-          const data = snap.exists() ? (snap.data().records || []) : [];
+        onSnapshot(recordsCol, (snap)=>{
+          const data = snap.docs.map(d => d.data());
           onData(data);
         }, (err)=>{
           console.error('Firestore watch error:', err);
@@ -446,11 +490,7 @@ function initRealtimeSync(){
   );
 }
 
-async function persist(){
-  const ok = await window.fbSaveRecords(records);
-  if(!ok) showToast('저장 실패 - 네트워크를 확인해주세요');
-  return ok;
-}
+// (전역 persist() 제거됨 — 이제 항목별로 fbAddRecord/fbUpdateRecord/fbDeleteRecord/fbBulkAdd/fbBulkUpdate 사용)
 
   function getFiltered(){
   let list = [...records];
@@ -688,7 +728,7 @@ async function submitAdd(){
   render();
   closeOverlay('addOverlay');
   await saveMyName(by);
-  const ok = await persist();
+  const ok = await window.fbAddRecord(rec);
   showToast(ok ? (addStatus === 'testing' ? '시험검사중으로 등록 완료' : '블락 등록 완료') : '등록됐지만 저장에 실패했어요');
 }
 
@@ -740,23 +780,26 @@ async function submitTestResult(id){
     return;
   }
   const rec = records.find(r => r.id === id);
+  let patch = null;
   if(rec){
     if(testResultChoice === 'pass'){
       rec.status = 'released';
       rec.releasedBy = by;
       rec.releasedAt = new Date().toISOString();
       rec.releaseMemo = memo || '시험검사 적합';
+      patch = { status: rec.status, releasedBy: rec.releasedBy, releasedAt: rec.releasedAt, releaseMemo: rec.releaseMemo };
     } else {
       rec.status = 'blocked';
       rec.testFailBy = by;
       rec.testFailAt = new Date().toISOString();
       rec.testFailMemo = memo || '시험검사 부적합';
+      patch = { status: rec.status, testFailBy: rec.testFailBy, testFailAt: rec.testFailAt, testFailMemo: rec.testFailMemo };
     }
   }
   render();
   closeOverlay('testOverlay');
   await saveMyName(by);
-  const ok = await persist();
+  const ok = patch ? await window.fbUpdateRecord(id, patch) : false;
   showToast(ok ? '검사 결과 저장 완료' : '처리됐지만 저장에 실패했어요');
 }
 
@@ -841,10 +884,13 @@ async function submitBulkTestResult(){
       rec.testFailMemo = memo || '시험검사 부적합(일괄)';
     }
   });
+  const patch = bulkTestChoice === 'pass'
+    ? { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo || '시험검사 적합(일괄)' }
+    : { status: 'blocked', testFailBy: by, testFailAt: now, testFailMemo: memo || '시험검사 부적합(일괄)' };
   render();
   closeOverlay('bulkTestOverlay');
   await saveMyName(by);
-  const ok = await persist();
+  const ok = await window.fbBulkUpdate(checkedIds, patch);
   showToast(ok ? `${checkedIds.length}건 일괄 처리 완료` : '처리됐지만 저장에 실패했어요');
 }
 
@@ -905,10 +951,11 @@ async function submitBulkRelease(){
     rec.releasedAt = now;
     rec.releaseMemo = memo || '일괄 해제';
   });
+  const patch = { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo || '일괄 해제' };
   render();
   closeOverlay('bulkReleaseOverlay');
   await saveMyName(by);
-  const ok = await persist();
+  const ok = await window.fbBulkUpdate(checkedIds, patch);
   showToast(ok ? `${checkedIds.length}건 일괄 해제 완료` : '처리됐지만 저장에 실패했어요');
 }
 
@@ -942,16 +989,17 @@ async function submitRelease(id){
     return;
   }
   const rec = records.find(r => r.id === id);
+  const now = new Date().toISOString();
   if(rec){
     rec.status = 'released';
     rec.releasedBy = by;
-    rec.releasedAt = new Date().toISOString();
+    rec.releasedAt = now;
     rec.releaseMemo = memo;
   }
   render();
   closeOverlay('relOverlay');
   await saveMyName(by);
-  const ok = await persist();
+  const ok = await window.fbUpdateRecord(id, { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo });
   showToast(ok ? '해제 처리 완료' : '처리됐지만 저장에 실패했어요');
 }
 
@@ -959,7 +1007,7 @@ async function deleteRecord(id){
   if(!confirm('이 기록을 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
   records = records.filter(r => r.id !== id);
   render();
-  const ok = await persist();
+  const ok = await window.fbDeleteRecord(id);
   showToast(ok ? '삭제 완료' : '삭제됐지만 저장에 실패했어요');
 }
 
@@ -1173,21 +1221,20 @@ async function submitBulk(){
     return;
   }
   const now = new Date().toISOString();
-  toAdd.forEach((r, i)=>{
-    records.push({
-      id: genId() + i,
-      lot: r.lot, product: r.product, code: r.code, reason: r.reason, memo: r.memo,
-      registeredBy: by,
-      registeredAt: now,
-      status: bulkStatus,
-      releasedBy: null, releasedAt: null, releaseMemo: null,
-      testFailBy: null, testFailAt: null, testFailMemo: null
-    });
-  });
+  const newRecords = toAdd.map((r, i) => ({
+    id: genId() + i,
+    lot: r.lot, product: r.product, code: r.code, reason: r.reason, memo: r.memo,
+    registeredBy: by,
+    registeredAt: now,
+    status: bulkStatus,
+    releasedBy: null, releasedAt: null, releaseMemo: null,
+    testFailBy: null, testFailAt: null, testFailMemo: null
+  }));
+  newRecords.forEach(rec => records.push(rec));
   render();
   closeOverlay('bulkOverlay');
   await saveMyName(by);
-  const ok = await persist();
+  const ok = await window.fbBulkAdd(newRecords);
   showToast(ok ? `${toAdd.length}건 일괄 등록 완료` : '등록됐지만 저장에 실패했어요');
 }
 
