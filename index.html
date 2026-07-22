@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>블락배치 조회·기록기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBWggfffWmZXeVCDZ1OKLoRLDa-VVD6MPE",
+    authDomain: "fmek-lot.firebaseapp.com",
+    projectId: "fmek-lot",
+    storageBucket: "fmek-lot.firebasestorage.app",
+    messagingSenderId: "1074158076481",
+    appId: "1:1074158076481:web:0d13f402b5a949fe5a7cc0"
+  };
+
+  const isConfigured = !firebaseConfig.apiKey.includes('여기에');
+  window.__firebaseReady = false;
+
+  if(isConfigured){
+    try{
+      const app = initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+      const recordsDocRef = doc(db, "blockTracker", "records");
+
+      window.fbSaveRecords = async function(records){
+        try{
+          await setDoc(recordsDocRef, { records, updatedAt: new Date().toISOString() });
+          return true;
+        }catch(e){
+          console.error('Firestore save error:', e);
+          return false;
+        }
+      };
+
+      window.fbWatchRecords = function(onData, onError){
+        onSnapshot(recordsDocRef, (snap)=>{
+          const data = snap.exists() ? (snap.data().records || []) : [];
+          onData(data);
+        }, (err)=>{
+          console.error('Firestore watch error:', err);
+          if(onError) onError(err);
+        });
+      };
+
+      window.__firebaseReady = true;
+    }catch(e){
+      console.error('Firebase init error:', e);
+      window.__firebaseReady = false;
+    }
+  }
+  window.__firebaseChecked = true;
+</script>
+<style>
+  :root{
+    --bg:#EEF1F4;
+    --surface:#FFFFFF;
+    --ink:#1B2430;
+    --ink-muted:#5B6672;
+    --steel:#2C4A66;
+    --steel-dark:#1D3347;
+    --amber:#B4530A;
+    --amber-bg:#FDF1E7;
+    --green:#157347;
+    --green-bg:#E9F6EF;
+    --blue:#1D4ED8;
+    --blue-bg:#EAF0FE;
+    --line:#D7DEE5;
+    --danger:#B3261E;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{ max-width:720px; margin:0 auto; min-height:100vh; background:var(--bg); padding-bottom:100px; }
+
+  header{
+    position:sticky; top:0; z-index:20;
+    background:var(--steel);
+    background-image:linear-gradient(160deg, var(--steel) 0%, var(--steel-dark) 100%);
+    color:#fff;
+    padding:18px 18px 16px;
+    box-shadow:0 2px 10px rgba(0,0,0,.12);
+  }
+  .header-top{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  h1{
+    font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.02em;
+    font-size:20px; margin:0; text-transform:uppercase;
+  }
+  .subtitle{ font-size:12px; color:#B9C7D4; margin-top:2px; font-weight:500; }
+  .stats-row{ display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+  .stat-chip{
+    display:flex; align-items:center; gap:5px;
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.18);
+    border-radius:20px; padding:5px 11px; font-size:11.5px; font-weight:600; white-space:nowrap; color:#DCE5EC;
+  }
+  .stat-chip .n{ font-family:'JetBrains Mono',monospace; font-size:13px; }
+  .stat-chip.c-testing .n{ color:#9DBBFF; }
+  .stat-chip.c-blocked .n{ color:#FFD9B3; }
+  .stat-chip.c-released .n{ color:#A6E4C2; }
+
+  .search-row{ margin-top:14px; position:relative; }
+  .search-row input{
+    width:100%; padding:11px 44px 11px 38px; border-radius:10px; border:none;
+    font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:500;
+    background:rgba(255,255,255,.95); color:var(--ink);
+  }
+  .search-row input:focus{ outline:2px solid #FFD9B3; outline-offset:1px; }
+  .search-row input:disabled{ color:var(--steel-dark); font-weight:600; opacity:1; }
+  .search-icon{ position:absolute; left:13px; top:50%; transform:translateY(-50%); opacity:.5; font-size:14px; }
+  .multi-search-btn{
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    width:29px; height:29px; border-radius:7px; border:none; background:var(--steel-dark); color:#fff;
+    font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .multi-chip{
+    margin-top:9px; display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.22); border-radius:9px; padding:8px 12px;
+  }
+  .multi-chip span{ font-size:12px; font-weight:600; color:#fff; }
+  .multi-chip button{ background:none; border:none; color:#FFD9B3; font-weight:700; cursor:pointer; font-size:12px; padding:2px 4px; }
+
+  .tabs{ display:flex; gap:5px; margin-top:12px; }
+  .tab{
+    flex:1; text-align:center; padding:8px 4px; border-radius:8px; font-size:11.5px; font-weight:600;
+    background:rgba(255,255,255,.08); color:#C9D5DF; cursor:pointer; border:1px solid transparent;
+    transition:background .15s;
+  }
+  .tab.active{ background:#fff; color:var(--steel-dark); }
+
+  .list{ padding:16px 14px 0; display:flex; flex-direction:column; gap:10px; }
+  .action-bar{ margin:14px 14px 0; display:flex; flex-direction:column; gap:8px; }
+  .action-row{
+    padding:11px 14px; border-radius:10px;
+    background:var(--blue-bg); border:1px solid #C7D8FC;
+    display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+  }
+  .action-row span{ font-size:12.5px; font-weight:600; color:var(--blue); }
+  .action-row button{
+    font-size:12.5px; font-weight:700; padding:7px 13px; border-radius:8px; border:none;
+    background:var(--blue); color:#fff; cursor:pointer;
+  }
+  .action-row.amber{ background:var(--amber-bg); border-color:#F3C89A; }
+  .action-row.amber span{ color:var(--amber); }
+  .action-row.amber button{ background:var(--amber); }
+  .empty{
+    text-align:center; padding:60px 20px; color:var(--ink-muted);
+  }
+  .empty .big{ font-size:32px; margin-bottom:8px; }
+  .empty p{ font-size:13.5px; margin:4px 0; }
+
+  .card{
+    background:var(--surface); border-radius:12px; overflow:hidden;
+    box-shadow:0 1px 3px rgba(20,30,40,.08); border:1px solid var(--line);
+    position:relative;
+  }
+  .card.blocked{ border-left:6px solid var(--amber); }
+  .card.blocked::before{
+    content:''; position:absolute; left:0; top:0; bottom:0; width:6px;
+    background-image:repeating-linear-gradient(135deg, var(--amber) 0 6px, #2A2A2A 6px 12px);
+    opacity:.85;
+  }
+  .card.released{ border-left:6px solid var(--green); }
+  .card.testing{ border-left:6px solid var(--blue); }
+
+  .card-inner{ padding:14px 14px 14px 18px; }
+  .card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .lot{ font-family:'JetBrains Mono',monospace; font-weight:700; font-size:15.5px; letter-spacing:.01em; }
+  .product{ font-size:12.5px; color:var(--ink-muted); margin-top:2px; }
+
+  .badge{
+    font-size:10.5px; font-weight:700; padding:4px 9px; border-radius:20px; white-space:nowrap;
+    letter-spacing:.02em;
+  }
+  .badge.blocked{ background:var(--amber-bg); color:var(--amber); }
+  .badge.released{ background:var(--green-bg); color:var(--green); }
+  .badge.testing{ background:var(--blue-bg); color:var(--blue); }
+
+  .meta-row{ display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:10px; font-size:12px; color:var(--ink-muted); }
+  .meta-row b{ color:var(--ink); font-weight:600; }
+  .reason-tag{
+    display:inline-block; margin-top:8px; font-size:11.5px; font-weight:600; color:var(--steel-dark);
+    background:#EAF0F5; padding:3px 9px; border-radius:6px;
+  }
+  .memo{ font-size:12.5px; color:var(--ink-muted); margin-top:8px; line-height:1.5; background:#F7F8FA; padding:8px 10px; border-radius:8px; }
+
+  .release-info{ margin-top:10px; padding-top:10px; border-top:1px dashed var(--line); font-size:12px; color:var(--ink-muted); }
+  .release-info b{ color:var(--green); }
+  .release-info.fail b{ color:var(--amber); }
+
+  .seg{ display:flex; gap:6px; background:#F1F3F5; border-radius:10px; padding:4px; margin-bottom:14px; }
+  .seg-btn{ flex:1; text-align:center; padding:9px; border-radius:7px; font-size:12.5px; font-weight:700; cursor:pointer; color:var(--ink-muted); border:none; background:none; }
+  .seg-btn.active.st-blocked{ background:var(--amber); color:#fff; }
+  .seg-btn.active.st-testing{ background:var(--blue); color:#fff; }
+  .seg-btn.active.st-pass{ background:var(--green); color:#fff; }
+  .seg-btn.active.st-fail{ background:var(--amber); color:#fff; }
+
+  .card-actions{ display:flex; gap:8px; margin-top:12px; }
+  .btn-sm{
+    font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:8px; border:none; cursor:pointer;
+  }
+  .btn-release{ background:var(--steel); color:#fff; flex:1; }
+  .btn-release:hover{ background:var(--steel-dark); }
+  .btn-test{ background:var(--blue); color:#fff; flex:1; }
+  .btn-test:hover{ background:#173FAE; }
+  .btn-del{ background:none; color:var(--ink-muted); border:1px solid var(--line); }
+  .btn-del:hover{ color:var(--danger); border-color:var(--danger); }
+
+  .fab{
+    position:fixed; right:20px; bottom:20px; z-index:30;
+    width:56px; height:56px; border-radius:50%; border:none;
+    background:var(--amber); color:#fff; font-size:26px; font-weight:700;
+    box-shadow:0 4px 14px rgba(180,83,10,.4); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    max-width:720px; margin:0 auto;
+  }
+  .fab-sub{
+    position:fixed; right:20px; bottom:88px; z-index:30;
+    width:44px; height:44px; border-radius:50%; border:none;
+    background:var(--steel); color:#fff; font-size:18px;
+    box-shadow:0 4px 14px rgba(44,74,102,.35); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    max-width:720px; margin:0 auto;
+  }
+  .fab-wrap{ position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center; pointer-events:none; }
+  .fab-wrap .fab-inner{ position:relative; width:100%; max-width:720px; height:0; pointer-events:none; }
+  .fab-wrap button{ pointer-events:auto; position:absolute; right:20px; }
+  .fab-wrap .fab{ bottom:20px; }
+  .fab-wrap .fab-sub{ bottom:88px; }
+
+  .modal-tabs{ display:flex; gap:6px; margin-bottom:16px; background:#F1F3F5; border-radius:10px; padding:4px; }
+  .modal-tab{ flex:1; text-align:center; padding:8px; border-radius:7px; font-size:12.5px; font-weight:600; color:var(--ink-muted); cursor:pointer; }
+  .modal-tab.active{ background:#fff; color:var(--steel-dark); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .hint{ font-size:11.5px; color:var(--ink-muted); margin-top:5px; line-height:1.5; }
+  .hint code{ background:#F1F3F5; padding:1px 5px; border-radius:4px; font-family:'JetBrains Mono',monospace; }
+  .dropzone{
+    border:2px dashed var(--line); border-radius:10px; padding:20px 14px; text-align:center;
+    color:var(--ink-muted); font-size:13px; cursor:pointer; background:#FBFCFD;
+  }
+  .dropzone.drag{ border-color:var(--steel); background:#EAF0F5; }
+  .dropzone input{ display:none; }
+  .preview-table{ width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; }
+  .preview-table th{ text-align:left; font-size:10.5px; color:var(--ink-muted); font-weight:600; padding:4px 6px; border-bottom:1px solid var(--line); }
+  .preview-table td{ padding:6px 6px; border-bottom:1px solid #EEF1F4; vertical-align:top; }
+  .preview-table tr.invalid td{ color:var(--danger); }
+  .preview-table .pv-lot{ font-family:'JetBrains Mono',monospace; font-weight:600; }
+  .preview-table td.chk{ width:22px; }
+  .preview-summary{ font-size:12px; color:var(--ink-muted); margin-top:8px; }
+  .preview-summary b{ color:var(--steel-dark); }
+  .preview-wrap{ max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:0 8px; }
+
+  .overlay{
+    position:fixed; inset:0; background:rgba(20,26,33,.55); z-index:40;
+    display:flex; align-items:flex-end; justify-content:center;
+  }
+  .modal{
+    background:#fff; width:100%; max-width:720px; border-radius:18px 18px 0 0;
+    padding:20px 20px 24px; max-height:88vh; overflow-y:auto;
+    animation:slideup .2s ease-out;
+  }
+  @keyframes slideup{ from{ transform:translateY(24px); opacity:0;} to{ transform:translateY(0); opacity:1;} }
+  .modal h2{
+    font-family:'Oswald',sans-serif; font-size:17px; font-weight:600; text-transform:uppercase;
+    letter-spacing:.02em; margin:0 0 16px; color:var(--steel-dark);
+  }
+  .field{ margin-bottom:13px; }
+  .field label{ display:block; font-size:12px; font-weight:600; color:var(--ink-muted); margin-bottom:5px; }
+  .field input, .field select, .field textarea{
+    width:100%; padding:10px 12px; border-radius:9px; border:1px solid var(--line);
+    font-family:'Inter',sans-serif; font-size:14px; color:var(--ink); background:#FBFCFD;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{ outline:2px solid var(--steel); outline-offset:0; border-color:var(--steel); }
+  .field textarea{ resize:vertical; min-height:56px; font-family:'Inter',sans-serif; }
+  .modal-actions{ display:flex; gap:10px; margin-top:18px; }
+  .btn-cancel{ flex:1; padding:12px; border-radius:10px; border:1px solid var(--line); background:#fff; color:var(--ink-muted); font-weight:600; font-size:14px; cursor:pointer; }
+  .btn-submit{ flex:2; padding:12px; border-radius:10px; border:none; background:var(--steel); color:#fff; font-weight:700; font-size:14px; cursor:pointer; }
+  .btn-submit.danger{ background:var(--amber); }
+  .err{ color:var(--danger); font-size:12px; margin-top:6px; display:none; }
+
+  .toast{
+    position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:50;
+    background:var(--steel-dark); color:#fff; padding:10px 18px; border-radius:20px; font-size:13px; font-weight:600;
+    box-shadow:0 4px 12px rgba(0,0,0,.2); opacity:0; pointer-events:none; transition:opacity .2s, transform .2s;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(6px); }
+
+  .loading{ text-align:center; padding:60px 20px; color:var(--ink-muted); font-size:13px; }
+
+  .setup-screen{
+    position:fixed; inset:0; background:var(--bg); z-index:100;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .setup-box{
+    max-width:440px; background:#fff; border-radius:16px; padding:32px 28px;
+    box-shadow:0 4px 20px rgba(0,0,0,.08); border:1px solid var(--line);
+  }
+  .setup-icon{ font-size:36px; margin-bottom:10px; }
+  .setup-box h2{ font-family:'Oswald',sans-serif; font-size:18px; color:var(--steel-dark); margin:0 0 12px; }
+  .setup-box p{ font-size:13px; color:var(--ink-muted); line-height:1.6; margin:0 0 14px; }
+  .setup-box code{ background:#F1F3F5; padding:1px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:12px; }
+  .setup-box ol{ font-size:12.5px; color:var(--ink); line-height:1.9; padding-left:20px; margin:0; }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <header>
+    <div class="header-top">
+      <div>
+        <h1>블락배치 조회·기록기</h1>
+        <div class="subtitle" id="subtitle">팀 공용 · 실시간 동기화 (Firebase)</div>
+      </div>
+    </div>
+    <div class="stats-row">
+      <div class="stat-chip c-testing">시험검사중 <span class="n" id="testingCount">-</span></div>
+      <div class="stat-chip c-blocked">블락중 <span class="n" id="activeCount">-</span></div>
+      <div class="stat-chip c-released">해제됨 <span class="n" id="releasedCount">-</span></div>
+    </div>
+    <div class="search-row">
+      <span class="search-icon">🔍</span>
+      <input id="searchInput" type="text" placeholder="제품코드, LOT 번호, 제품명 검색" autocomplete="off">
+      <button class="multi-search-btn" id="openMultiSearch" title="여러 LOT 한번에 검색">☰</button>
+    </div>
+    <div class="multi-chip" id="multiChip" style="display:none;"></div>
+    <div class="tabs" id="tabs">
+      <div class="tab active" data-filter="all">전체</div>
+      <div class="tab" data-filter="testing">시험검사중</div>
+      <div class="tab" data-filter="blocked">블락중</div>
+      <div class="tab" data-filter="released">해제됨</div>
+    </div>
+  </header>
+
+  <div class="action-bar" id="actionBar" style="display:none;"></div>
+  <div class="list" id="list">
+    <div class="loading">불러오는 중...</div>
+  </div>
+</div>
+
+<div class="fab-wrap"><div class="fab-inner">
+  <button class="fab-sub" id="openBulk" title="여러 건 한번에 업로드">📥</button>
+  <button class="fab" id="openAdd" title="새 항목 등록">+</button>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let records = [];
+let currentFilter = 'all';
+let searchTerm = '';
+let multiLotTokens = [];
+let myName = '';
+
+const REASONS = ['품질이상(시험검사 부적합)','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+function genId(){
+  return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+
+function fmtDate(iso){
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function loadMyName(){
+  try{
+    const v = localStorage.getItem('blockTracker_myName');
+    if(v) myName = v;
+  }catch(e){ /* localStorage 사용 불가 */ }
+}
+
+function saveMyName(name){
+  myName = name;
+  try{ localStorage.setItem('blockTracker_myName', name); }catch(e){}
+}
+
+function waitForFirebase(){
+  return new Promise((resolve)=>{
+    const check = ()=>{
+      if(window.__firebaseChecked) resolve();
+      else setTimeout(check, 50);
+    };
+    check();
+  });
+}
+
+function initRealtimeSync(){
+  document.getElementById('list').innerHTML = '<div class="loading">불러오는 중...</div>';
+  window.fbWatchRecords(
+    (data) => { records = data; render(); },
+    (err) => { showToast('실시간 동기화 연결 실패 - 새로고침 해주세요'); }
+  );
+}
+
+async function persist(){
+  const ok = await window.fbSaveRecords(records);
+  if(!ok) showToast('저장 실패 - 네트워크를 확인해주세요');
+  return ok;
+}
+
+function getFiltered(){
+  let list = [...records];
+  if(currentFilter === 'testing') list = list.filter(r => r.status === 'testing');
+  if(currentFilter === 'blocked') list = list.filter(r => r.status === 'blocked');
+  if(currentFilter === 'released') list = list.filter(r => r.status === 'released');
+
+  if(multiLotTokens.length > 0){
+    list = list.filter(r => {
+      const lot = r.lot.toLowerCase();
+      const code = (r.code || '').toLowerCase();
+      return multiLotTokens.some(t => lot === t || lot.includes(t) || code === t);
+    });
+  } else if(searchTerm.trim()){
+    const q = searchTerm.trim().toLowerCase();
+    list = list.filter(r => r.lot.toLowerCase().includes(q) || r.product.toLowerCase().includes(q) || (r.code||'').toLowerCase().includes(q));
+  }
+  return list.sort((a,b) => new Date(b.registeredAt) - new Date(a.registeredAt));
+}
+
+const STATUS_LABEL = { testing:'시험검사중', blocked:'블락중', released:'해제됨' };
+
+function render(){
+  updateMultiChip();
+  const isNarrowed = multiLotTokens.length > 0 || searchTerm.trim() || currentFilter !== 'all';
+  const filteredTestingList = getFiltered().filter(r => r.status === 'testing');
+  const filteredBlockedList = getFiltered().filter(r => r.status === 'blocked');
+  document.getElementById('testingCount').textContent = records.filter(r => r.status === 'testing').length;
+  document.getElementById('activeCount').textContent = records.filter(r => r.status === 'blocked').length;
+  document.getElementById('releasedCount').textContent = records.filter(r => r.status === 'released').length;
+
+  const bar = document.getElementById('actionBar');
+  let rows = '';
+  if(filteredTestingList.length > 0){
+    const label = isNarrowed ? `🔵 검색·필터된 시험검사중 ${filteredTestingList.length}건` : `🔵 시험검사중 ${filteredTestingList.length}건`;
+    rows += `<div class="action-row"><span>${label}</span><button onclick="openBulkTestResult()">일괄 검사결과 처리</button></div>`;
+  }
+  if(filteredBlockedList.length > 0){
+    const label = isNarrowed ? `🟠 검색·필터된 블락중 ${filteredBlockedList.length}건` : `🟠 블락중 ${filteredBlockedList.length}건`;
+    rows += `<div class="action-row amber"><span>${label}</span><button onclick="openBulkRelease()">일괄 해제 처리</button></div>`;
+  }
+  if(rows){
+    bar.style.display = 'flex';
+    bar.innerHTML = rows;
+  } else {
+    bar.style.display = 'none';
+  }
+
+  const list = getFiltered();
+  const el = document.getElementById('list');
+
+  if(list.length === 0){
+    el.innerHTML = `<div class="empty">
+      <div class="big">📋</div>
+      <p><b>기록이 없어요</b></p>
+      <p>${records.length === 0 ? '우측 하단 + 버튼으로 첫 건을 등록해보세요' : '검색·필터 조건에 맞는 항목이 없어요'}</p>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = list.map(r => {
+    const status = r.status;
+    return `
+    <div class="card ${status}">
+      <div class="card-inner">
+        <div class="card-top">
+          <div>
+            <div class="lot">${escapeHtml(r.lot)}${r.code ? ` <span style="color:var(--ink-muted); font-weight:500; font-size:12px;">· ${escapeHtml(r.code)}</span>` : ''}</div>
+            <div class="product">${escapeHtml(r.product)}</div>
+          </div>
+          <span class="badge ${status}">${STATUS_LABEL[status]}</span>
+        </div>
+        <span class="reason-tag">${escapeHtml(r.reason)}</span>
+        ${r.memo ? `<div class="memo">${escapeHtml(r.memo)}</div>` : ''}
+        <div class="meta-row">
+          <span>등록 <b>${escapeHtml(r.registeredBy)}</b></span>
+          <span>${fmtDate(r.registeredAt)}</span>
+        </div>
+        ${status === 'released' ? `
+        <div class="release-info">
+          <b>해제</b> · ${escapeHtml(r.releasedBy || '')} · ${r.releasedAt ? fmtDate(r.releasedAt) : ''}
+          ${r.releaseMemo ? `<div class="memo" style="margin-top:6px;">${escapeHtml(r.releaseMemo)}</div>` : ''}
+        </div>` : ''}
+        ${status === 'blocked' && r.testFailBy ? `
+        <div class="release-info fail">
+          <b>부적합 처리</b> · ${escapeHtml(r.testFailBy)} · ${r.testFailAt ? fmtDate(r.testFailAt) : ''}
+          ${r.testFailMemo ? `<div class="memo" style="margin-top:6px;">${escapeHtml(r.testFailMemo)}</div>` : ''}
+        </div>` : ''}
+        <div class="card-actions">
+          ${status === 'testing' ? `<button class="btn-sm btn-test" onclick="openTestResult('${r.id}')">검사 결과 입력</button>` : ''}
+          ${status === 'blocked' ? `<button class="btn-sm btn-release" onclick="openRelease('${r.id}')">해제 처리</button>` : ''}
+          <button class="btn-sm btn-del" onclick="deleteRecord('${r.id}')">삭제</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function updateMultiChip(){
+  const chip = document.getElementById('multiChip');
+  const input = document.getElementById('searchInput');
+  if(multiLotTokens.length > 0){
+    const matched = records.filter(r => {
+      const lot = r.lot.toLowerCase(); const code = (r.code||'').toLowerCase();
+      return multiLotTokens.some(t => lot === t || lot.includes(t) || code === t);
+    }).length;
+    chip.style.display = 'flex';
+    chip.innerHTML = `<span>LOT ${multiLotTokens.length}건 다중검색 중 · 매칭 ${matched}건</span><button onclick="clearMultiSearch()">✕ 해제</button>`;
+    input.disabled = true;
+    input.value = '';
+    input.placeholder = `LOT ${multiLotTokens.length}건 다중검색 중`;
+  } else {
+    chip.style.display = 'none';
+    input.disabled = false;
+    input.placeholder = '제품코드, LOT 번호, 제품명 검색';
+  }
+}
+
+function clearMultiSearch(){
+  multiLotTokens = [];
+  render();
+}
+
+function openMultiSearchModal(){
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'multiSearchOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>여러 LOT 한번에 검색</h2>
+      <div class="field">
+        <label>LOT 번호 목록</label>
+        <textarea id="msBox" style="min-height:140px;" placeholder="LOT2026-001
+LOT2026-002
+LOT2026-003">${multiLotTokens.length ? multiLotTokens.join('\n') : ''}</textarea>
+        <div class="hint">엑셀에서 LOT 번호 열을 복사해서 그대로 붙여넣으세요. 줄바꿈·쉼표·공백 구분 모두 인식해요.</div>
+      </div>
+      <div class="err" id="ms_err">LOT 번호를 1개 이상 입력해주세요</div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('multiSearchOverlay')">취소</button>
+        <button class="btn-submit" onclick="applyMultiSearch()">검색 적용</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('multiSearchOverlay'); });
+}
+
+function applyMultiSearch(){
+  const raw = document.getElementById('msBox').value;
+  const tokens = raw.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+  const unique = [...new Set(tokens)];
+  if(unique.length === 0){
+    document.getElementById('ms_err').style.display = 'block';
+    return;
+  }
+  multiLotTokens = unique;
+  searchTerm = '';
+  closeOverlay('multiSearchOverlay');
+  render();
+  showToast(`LOT ${unique.length}건 검색 적용`);
+}
+
+let addStatus = 'blocked';
+
+function openAddModal(){
+  addStatus = 'blocked';
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'addOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>새 항목 등록</h2>
+      <div class="seg" id="addSeg">
+        <button type="button" class="seg-btn active st-blocked" data-v="blocked">블락 처리</button>
+        <button type="button" class="seg-btn st-testing" data-v="testing">시험검사중</button>
+      </div>
+      <div class="field"><label>제품코드</label><input id="f_code" type="text" placeholder="예: PC-1234 (선택)"></div>
+      <div class="field"><label>LOT / 배치번호 *</label><input id="f_lot" type="text" placeholder="예: LOT2026-0721A"></div>
+      <div class="field"><label>제품명 *</label><input id="f_product" type="text" placeholder="예: OOO 정제 500mg"></div>
+      <div class="field"><label id="f_reason_label">블락 사유 *</label>
+        <select id="f_reason">${REASONS.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>상세 메모</label><textarea id="f_memo" placeholder="상세 내용 (선택)"></textarea></div>
+      <div class="field"><label>등록자 *</label><input id="f_by" type="text" placeholder="이름" value="${escapeHtml(myName)}"></div>
+      <div class="err" id="f_err">필수 항목을 입력해주세요</div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('addOverlay')">취소</button>
+        <button class="btn-submit" id="addSubmitBtn" onclick="submitAdd()">블락 등록</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('addOverlay'); });
+
+  overlay.querySelectorAll('#addSeg .seg-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      overlay.querySelectorAll('#addSeg .seg-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      addStatus = btn.dataset.v;
+      const isTesting = addStatus === 'testing';
+      document.getElementById('f_reason_label').textContent = isTesting ? '검사 사유' : '블락 사유 *';
+      document.getElementById('addSubmitBtn').textContent = isTesting ? '시험검사중으로 등록' : '블락 등록';
+    });
+  });
+}
+
+async function submitAdd(){
+  const code = document.getElementById('f_code').value.trim();
+  const lot = document.getElementById('f_lot').value.trim();
+  const product = document.getElementById('f_product').value.trim();
+  const reason = document.getElementById('f_reason').value;
+  const memo = document.getElementById('f_memo').value.trim();
+  const by = document.getElementById('f_by').value.trim();
+
+  if(!lot || !product || !by){
+    document.getElementById('f_err').style.display = 'block';
+    return;
+  }
+
+  const rec = {
+    id: genId(),
+    lot, product, code, reason, memo,
+    registeredBy: by,
+    registeredAt: new Date().toISOString(),
+    status: addStatus,
+    releasedBy: null, releasedAt: null, releaseMemo: null,
+    testFailBy: null, testFailAt: null, testFailMemo: null
+  };
+  records.push(rec);
+  render();
+  closeOverlay('addOverlay');
+  await saveMyName(by);
+  const ok = await persist();
+  showToast(ok ? (addStatus === 'testing' ? '시험검사중으로 등록 완료' : '블락 등록 완료') : '등록됐지만 저장에 실패했어요');
+}
+
+let testResultChoice = 'pass';
+
+function openTestResult(id){
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+  testResultChoice = 'pass';
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'testOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>시험검사 결과 입력</h2>
+      <div class="field"><label>LOT</label><input type="text" value="${escapeHtml(rec.lot)}" disabled></div>
+      <div class="seg" id="testSeg">
+        <button type="button" class="seg-btn active st-pass" data-v="pass">✔ 적합 (출하 가능)</button>
+        <button type="button" class="seg-btn st-fail" data-v="fail">✕ 부적합 (블락 처리)</button>
+      </div>
+      <div class="field"><label>처리자 *</label><input id="t_by" type="text" placeholder="이름" value="${escapeHtml(myName)}"></div>
+      <div class="field"><label>메모</label><textarea id="t_memo" placeholder="검사 결과 상세 (선택)"></textarea></div>
+      <div class="err" id="t_err">처리자 이름을 입력해주세요</div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('testOverlay')">취소</button>
+        <button class="btn-submit" id="testSubmitBtn" onclick="submitTestResult('${id}')">적합 처리</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('testOverlay'); });
+
+  overlay.querySelectorAll('#testSeg .seg-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      overlay.querySelectorAll('#testSeg .seg-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      testResultChoice = btn.dataset.v;
+      const submitBtn = document.getElementById('testSubmitBtn');
+      submitBtn.textContent = testResultChoice === 'pass' ? '적합 처리' : '부적합 처리';
+      submitBtn.className = testResultChoice === 'pass' ? 'btn-submit' : 'btn-submit danger';
+    });
+  });
+}
+
+async function submitTestResult(id){
+  const by = document.getElementById('t_by').value.trim();
+  const memo = document.getElementById('t_memo').value.trim();
+  if(!by){
+    document.getElementById('t_err').style.display = 'block';
+    return;
+  }
+  const rec = records.find(r => r.id === id);
+  if(rec){
+    if(testResultChoice === 'pass'){
+      rec.status = 'released';
+      rec.releasedBy = by;
+      rec.releasedAt = new Date().toISOString();
+      rec.releaseMemo = memo || '시험검사 적합';
+    } else {
+      rec.status = 'blocked';
+      rec.testFailBy = by;
+      rec.testFailAt = new Date().toISOString();
+      rec.testFailMemo = memo || '시험검사 부적합';
+    }
+  }
+  render();
+  closeOverlay('testOverlay');
+  await saveMyName(by);
+  const ok = await persist();
+  showToast(ok ? '검사 결과 저장 완료' : '처리됐지만 저장에 실패했어요');
+}
+
+let bulkTestChoice = 'pass';
+
+function openBulkTestResult(){
+  const items = getFiltered().filter(r => r.status === 'testing').sort((a,b)=> new Date(b.registeredAt) - new Date(a.registeredAt));
+  if(items.length === 0){ showToast('시험검사중인 항목이 없어요'); return; }
+  bulkTestChoice = 'pass';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'bulkTestOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>일괄 검사결과 처리</h2>
+      <div class="seg" id="bulkTestSeg">
+        <button type="button" class="seg-btn active st-pass" data-v="pass">✔ 적합 (출하 가능)</button>
+        <button type="button" class="seg-btn st-fail" data-v="fail">✕ 부적합 (블락 처리)</button>
+      </div>
+      <div class="preview-summary">시험검사중 <b>${items.length}</b>건 · 처리할 항목을 선택하세요</div>
+      <div class="preview-wrap">
+        <table class="preview-table">
+          <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th></tr></thead>
+          <tbody>
+            ${items.map(r => `
+              <tr>
+                <td class="chk"><input type="checkbox" class="bt-chk" data-id="${r.id}" checked></td>
+                <td>${escapeHtml(r.code) || '-'}</td>
+                <td class="pv-lot">${escapeHtml(r.lot)}</td>
+                <td>${escapeHtml(r.product)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="field" style="margin-top:12px;"><label>처리자 *</label><input id="bt_by" type="text" placeholder="이름" value="${escapeHtml(myName)}"></div>
+      <div class="field"><label>메모</label><textarea id="bt_memo" placeholder="검사 결과 상세 (선택, 전체 적용)"></textarea></div>
+      <div class="err" id="bt_err">처리자 이름과 선택된 항목이 1건 이상 필요해요</div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('bulkTestOverlay')">취소</button>
+        <button class="btn-submit" id="bulkTestSubmitBtn" onclick="submitBulkTestResult()">선택 항목 적합 처리</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('bulkTestOverlay'); });
+
+  overlay.querySelectorAll('#bulkTestSeg .seg-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      overlay.querySelectorAll('#bulkTestSeg .seg-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      bulkTestChoice = btn.dataset.v;
+      const submitBtn = document.getElementById('bulkTestSubmitBtn');
+      submitBtn.textContent = bulkTestChoice === 'pass' ? '선택 항목 적합 처리' : '선택 항목 부적합 처리';
+      submitBtn.className = bulkTestChoice === 'pass' ? 'btn-submit' : 'btn-submit danger';
+    });
+  });
+}
+
+async function submitBulkTestResult(){
+  const by = document.getElementById('bt_by').value.trim();
+  const memo = document.getElementById('bt_memo').value.trim();
+  const checkedIds = Array.from(document.querySelectorAll('.bt-chk:checked')).map(el => el.dataset.id);
+
+  if(!by || checkedIds.length === 0){
+    document.getElementById('bt_err').style.display = 'block';
+    return;
+  }
+
+  const now = new Date().toISOString();
+  checkedIds.forEach(id => {
+    const rec = records.find(r => r.id === id);
+    if(!rec) return;
+    if(bulkTestChoice === 'pass'){
+      rec.status = 'released';
+      rec.releasedBy = by;
+      rec.releasedAt = now;
+      rec.releaseMemo = memo || '시험검사 적합(일괄)';
+    } else {
+      rec.status = 'blocked';
+      rec.testFailBy = by;
+      rec.testFailAt = now;
+      rec.testFailMemo = memo || '시험검사 부적합(일괄)';
+    }
+  });
+  render();
+  closeOverlay('bulkTestOverlay');
+  await saveMyName(by);
+  const ok = await persist();
+  showToast(ok ? `${checkedIds.length}건 일괄 처리 완료` : '처리됐지만 저장에 실패했어요');
+}
+
+function openBulkRelease(){
+  const items = getFiltered().filter(r => r.status === 'blocked').sort((a,b)=> new Date(b.registeredAt) - new Date(a.registeredAt));
+  if(items.length === 0){ showToast('블락중인 항목이 없어요'); return; }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'bulkReleaseOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>일괄 블락 해제 처리</h2>
+      <div class="preview-summary">블락중 <b>${items.length}</b>건 · 해제할 항목을 선택하세요</div>
+      <div class="preview-wrap">
+        <table class="preview-table">
+          <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유</th></tr></thead>
+          <tbody>
+            ${items.map(r => `
+              <tr>
+                <td class="chk"><input type="checkbox" class="br-chk" data-id="${r.id}" checked></td>
+                <td>${escapeHtml(r.code) || '-'}</td>
+                <td class="pv-lot">${escapeHtml(r.lot)}</td>
+                <td>${escapeHtml(r.product)}</td>
+                <td>${escapeHtml(r.reason)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="field" style="margin-top:12px;"><label>해제자 *</label><input id="br_by" type="text" placeholder="이름" value="${escapeHtml(myName)}"></div>
+      <div class="field"><label>해제 메모</label><textarea id="br_memo" placeholder="해제 사유/처리 내용 (선택, 전체 적용)"></textarea></div>
+      <div class="err" id="br_err">해제자 이름과 선택된 항목이 1건 이상 필요해요</div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('bulkReleaseOverlay')">취소</button>
+        <button class="btn-submit" onclick="submitBulkRelease()">선택 항목 해제 처리</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('bulkReleaseOverlay'); });
+}
+
+async function submitBulkRelease(){
+  const by = document.getElementById('br_by').value.trim();
+  const memo = document.getElementById('br_memo').value.trim();
+  const checkedIds = Array.from(document.querySelectorAll('.br-chk:checked')).map(el => el.dataset.id);
+
+  if(!by || checkedIds.length === 0){
+    document.getElementById('br_err').style.display = 'block';
+    return;
+  }
+
+  const now = new Date().toISOString();
+  checkedIds.forEach(id => {
+    const rec = records.find(r => r.id === id);
+    if(!rec) return;
+    rec.status = 'released';
+    rec.releasedBy = by;
+    rec.releasedAt = now;
+    rec.releaseMemo = memo || '일괄 해제';
+  });
+  render();
+  closeOverlay('bulkReleaseOverlay');
+  await saveMyName(by);
+  const ok = await persist();
+  showToast(ok ? `${checkedIds.length}건 일괄 해제 완료` : '처리됐지만 저장에 실패했어요');
+}
+
+function openRelease(id){
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'relOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>블락 해제 처리</h2>
+      <div class="field"><label>LOT</label><input type="text" value="${escapeHtml(rec.lot)}" disabled></div>
+      <div class="field"><label>해제자 *</label><input id="r_by" type="text" placeholder="이름" value="${escapeHtml(myName)}"></div>
+      <div class="field"><label>해제 메모</label><textarea id="r_memo" placeholder="해제 사유/처리 내용 (선택)"></textarea></div>
+      <div class="err" id="r_err">해제자 이름을 입력해주세요</div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('relOverlay')">취소</button>
+        <button class="btn-submit" onclick="submitRelease('${id}')">해제 확정</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('relOverlay'); });
+}
+
+async function submitRelease(id){
+  const by = document.getElementById('r_by').value.trim();
+  const memo = document.getElementById('r_memo').value.trim();
+  if(!by){
+    document.getElementById('r_err').style.display = 'block';
+    return;
+  }
+  const rec = records.find(r => r.id === id);
+  if(rec){
+    rec.status = 'released';
+    rec.releasedBy = by;
+    rec.releasedAt = new Date().toISOString();
+    rec.releaseMemo = memo;
+  }
+  render();
+  closeOverlay('relOverlay');
+  await saveMyName(by);
+  const ok = await persist();
+  showToast(ok ? '해제 처리 완료' : '처리됐지만 저장에 실패했어요');
+}
+
+async function deleteRecord(id){
+  if(!confirm('이 기록을 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
+  records = records.filter(r => r.id !== id);
+  render();
+  const ok = await persist();
+  showToast(ok ? '삭제 완료' : '삭제됐지만 저장에 실패했어요');
+}
+
+function closeOverlay(id){
+  const el = document.getElementById(id);
+  if(el) el.remove();
+}
+
+let bulkRows = [];
+let bulkStatus = 'blocked';
+
+function openBulkModal(){
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'bulkOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>여러 건 한번에 등록</h2>
+      <div class="modal-tabs">
+        <div class="modal-tab active" data-mode="paste">붙여넣기</div>
+        <div class="modal-tab" data-mode="file">파일 업로드</div>
+      </div>
+
+      <div id="bulkPasteArea">
+        <div class="field">
+          <label>엑셀에서 복사해서 붙여넣기</label>
+          <textarea id="pasteBox" style="min-height:120px;" placeholder="PC-1234	LOT2026-001	OOO정제 500mg	품질이상	비고
+PC-5678	LOT2026-002	OOO시럽	서류미비	"></textarea>
+          <div class="hint">열 순서: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유</code>(선택) · <code>메모</code>(선택) — 엑셀 표를 그대로 드래그해서 복사·붙여넣기 하면 돼요.</div>
+        </div>
+      </div>
+
+      <div id="bulkFileArea" style="display:none;">
+        <div class="field">
+          <label>CSV / 엑셀(.xlsx) 파일 업로드</label>
+          <div class="dropzone" id="dropzone">
+            📄 클릭해서 파일 선택 (.csv, .xlsx)
+            <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+          </div>
+          <div class="hint">1행: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유</code> · <code>메모</code> 순서의 컬럼. 첫 줄이 헤더여도 자동으로 인식해요.</div>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:14px;">
+        <button class="btn-submit" style="width:100%;" id="parseBtn">미리보기</button>
+      </div>
+
+      <div id="bulkPreviewWrap" style="display:none;">
+        <div class="seg" id="bulkSeg">
+          <button type="button" class="seg-btn active st-blocked" data-v="blocked">전체 블락 처리</button>
+          <button type="button" class="seg-btn st-testing" data-v="testing">전체 시험검사중 등록</button>
+        </div>
+        <div class="field"><label>등록자 * (전체 적용)</label><input id="bulk_by" type="text" placeholder="이름" value="${escapeHtml(myName)}"></div>
+        <div class="preview-summary" id="previewSummary"></div>
+        <div class="preview-wrap">
+          <table class="preview-table" id="previewTable"></table>
+        </div>
+        <div class="err" id="bulk_err">등록자 이름과 유효한 항목이 1건 이상 필요해요</div>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeOverlay('bulkOverlay')">취소</button>
+          <button class="btn-submit" id="bulkSubmitBtn">일괄 등록</button>
+        </div>
+      </div>
+
+      <div class="modal-actions" id="bulkInitActions">
+        <button class="btn-cancel" onclick="closeOverlay('bulkOverlay')">취소</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('bulkOverlay'); });
+
+  let mode = 'paste';
+  overlay.querySelectorAll('.modal-tab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      overlay.querySelectorAll('.modal-tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      mode = tab.dataset.mode;
+      document.getElementById('bulkPasteArea').style.display = mode === 'paste' ? 'block' : 'none';
+      document.getElementById('bulkFileArea').style.display = mode === 'file' ? 'block' : 'none';
+      document.getElementById('bulkPreviewWrap').style.display = 'none';
+      document.getElementById('bulkInitActions').style.display = 'flex';
+    });
+  });
+
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  dropzone.addEventListener('click', ()=> fileInput.click());
+  ['dragover','dragenter'].forEach(evt => dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.classList.remove('drag'); }));
+  dropzone.addEventListener('drop', e=>{
+    if(e.dataTransfer.files.length){ fileInput.files = e.dataTransfer.files; dropzone.textContent = '✓ ' + e.dataTransfer.files[0].name; }
+  });
+  fileInput.addEventListener('change', ()=>{
+    if(fileInput.files.length) dropzone.firstChild.textContent = '✓ ' + fileInput.files[0].name;
+  });
+
+  document.getElementById('parseBtn').addEventListener('click', async ()=>{
+    let rows = [];
+    if(mode === 'paste'){
+      const text = document.getElementById('pasteBox').value;
+      rows = parseDelimitedText(text);
+    } else {
+      const f = fileInput.files[0];
+      if(!f){ showToast('파일을 먼저 선택해주세요'); return; }
+      rows = await parseFile(f);
+    }
+    bulkRows = rows;
+    bulkStatus = 'blocked';
+    renderPreview();
+    document.getElementById('bulkPreviewWrap').style.display = 'block';
+    document.getElementById('bulkInitActions').style.display = 'none';
+    document.querySelectorAll('#bulkSeg .seg-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelector('#bulkSeg .seg-btn[data-v="blocked"]').classList.add('active');
+    document.getElementById('bulkSubmitBtn').textContent = '일괄 등록';
+    document.querySelectorAll('#bulkSeg .seg-btn').forEach(btn=>{
+      btn.onclick = ()=>{
+        document.querySelectorAll('#bulkSeg .seg-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        bulkStatus = btn.dataset.v;
+        document.getElementById('bulkSubmitBtn').textContent = bulkStatus === 'testing' ? '시험검사중으로 일괄 등록' : '일괄 블락 등록';
+      };
+    });
+  });
+}
+
+function looksLikeHeader(cols){
+  const joined = cols.join(' ').toLowerCase();
+  return joined.includes('lot') || joined.includes('품목') || joined.includes('배치');
+}
+
+function parseDelimitedText(text){
+  const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length>0);
+  if(lines.length === 0) return [];
+  let dataLines = lines;
+  const firstCols = lines[0].split(/\t|,/).map(c=>c.trim());
+  if(looksLikeHeader(firstCols)) dataLines = lines.slice(1);
+
+  return dataLines.map(line=>{
+    const cols = line.split('\t').length > 1 ? line.split('\t') : line.split(',');
+    const c = cols.map(x=>(x||'').trim());
+    return normalizeRow(c[0], c[1], c[2], c[3], c[4]);
+  });
+}
+
+function parseFile(file){
+  return new Promise((resolve, reject)=>{
+    const name = file.name.toLowerCase();
+    const reader = new FileReader();
+    reader.onerror = ()=> { showToast('파일을 읽지 못했어요'); resolve([]); };
+    if(name.endsWith('.csv')){
+      reader.onload = (e)=>{
+        try{ resolve(parseDelimitedText(e.target.result)); }
+        catch(err){ showToast('CSV 파싱 실패'); resolve([]); }
+      };
+      reader.readAsText(file, 'UTF-8');
+    } else {
+      reader.onload = (e)=>{
+        try{
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' });
+          let data = rows.filter(r => r.some(c => String(c).trim() !== ''));
+          if(data.length && looksLikeHeader(data[0].map(String))) data = data.slice(1);
+          resolve(data.map(r => normalizeRow(r[0], r[1], r[2], r[3], r[4])));
+        }catch(err){ showToast('엑셀 파싱 실패 - 파일 형식을 확인해주세요'); resolve([]); }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  });
+}
+
+function normalizeRow(code, lot, product, reason, memo){
+  code = (code ?? '').toString().trim();
+  lot = (lot ?? '').toString().trim();
+  product = (product ?? '').toString().trim();
+  reason = (reason ?? '').toString().trim() || '기타';
+  memo = (memo ?? '').toString().trim();
+  const valid = !!lot && !!product;
+  return { code, lot, product, reason, memo, valid, include: valid };
+}
+
+function renderPreview(){
+  const validCount = bulkRows.filter(r=>r.valid).length;
+  document.getElementById('previewSummary').innerHTML =
+    `총 <b>${bulkRows.length}</b>행 인식 · 유효 <b>${validCount}</b>건 ${bulkRows.length - validCount > 0 ? `· LOT/제품명 누락 ${bulkRows.length - validCount}건은 제외됐어요` : ''}`;
+
+  const table = document.getElementById('previewTable');
+  table.innerHTML = `
+    <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유</th></tr></thead>
+    <tbody>
+      ${bulkRows.map((r,i)=>`
+        <tr class="${r.valid ? '' : 'invalid'}">
+          <td class="chk"><input type="checkbox" ${r.include ? 'checked':''} ${r.valid?'':'disabled'} onchange="bulkRows[${i}].include=this.checked"></td>
+          <td>${escapeHtml(r.code) || '-'}</td>
+          <td class="pv-lot">${escapeHtml(r.lot) || '-'}</td>
+          <td>${escapeHtml(r.product) || '-'}</td>
+          <td>${escapeHtml(r.reason)}</td>
+        </tr>`).join('')}
+    </tbody>`;
+}
+
+document.addEventListener('click', function(e){
+  if(e.target && e.target.id === 'bulkSubmitBtn') submitBulk();
+});
+
+async function submitBulk(){
+  const by = document.getElementById('bulk_by').value.trim();
+  const toAdd = bulkRows.filter(r => r.valid && r.include);
+  if(!by || toAdd.length === 0){
+    document.getElementById('bulk_err').style.display = 'block';
+    return;
+  }
+  const now = new Date().toISOString();
+  toAdd.forEach((r, i)=>{
+    records.push({
+      id: genId() + i,
+      lot: r.lot, product: r.product, code: r.code, reason: r.reason, memo: r.memo,
+      registeredBy: by,
+      registeredAt: now,
+      status: bulkStatus,
+      releasedBy: null, releasedAt: null, releaseMemo: null,
+      testFailBy: null, testFailAt: null, testFailMemo: null
+    });
+  });
+  render();
+  closeOverlay('bulkOverlay');
+  await saveMyName(by);
+  const ok = await persist();
+  showToast(ok ? `${toAdd.length}건 일괄 등록 완료` : '등록됐지만 저장에 실패했어요');
+}
+
+document.getElementById('openAdd').addEventListener('click', openAddModal);
+document.getElementById('openBulk').addEventListener('click', openBulkModal);
+document.getElementById('openMultiSearch').addEventListener('click', openMultiSearchModal);
+document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; render(); });
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    currentFilter = tab.dataset.filter;
+    render();
+  });
+});
+
+function showSetupNeeded(){
+  document.getElementById('app').style.display = 'none';
+  const el = document.createElement('div');
+  el.className = 'setup-screen';
+  el.innerHTML = `
+    <div class="setup-box">
+      <div class="setup-icon">🔧</div>
+      <h2>Firebase 설정이 필요해요</h2>
+      <p>이 파일의 &lt;script type="module"&gt; 안 <code>firebaseConfig</code> 값을<br>
+      Firebase 콘솔에서 복사한 값으로 채워야 앱이 동작해요.</p>
+      <ol>
+        <li>console.firebase.google.com 접속 → 프로젝트 생성</li>
+        <li>Firestore Database 만들기 (테스트 모드)</li>
+        <li>프로젝트 설정 → 내 앱 → 웹 앱 추가 → SDK 설정값 복사</li>
+        <li>이 HTML 파일을 열어 <code>firebaseConfig</code> 값 붙여넣기</li>
+        <li>파일 저장 후 다시 배포/새로고침</li>
+      </ol>
+    </div>`;
+  document.body.appendChild(el);
+}
+
+(async function init(){
+  loadMyName();
+  await waitForFirebase();
+  if(window.__firebaseReady){
+    initRealtimeSync();
+  } else {
+    showSetupNeeded();
+  }
+})();
+</script>
+</body>
+</html>
