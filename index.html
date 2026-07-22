@@ -10,6 +10,10 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+  // 팀 공용 로그인용 내부 계정 이메일 (실제 메일함 아님, 로그인 ID로만 사용)
+  const TEAM_EMAIL = "fmek@korea.com";
 
   const firebaseConfig = {
     apiKey: "AIzaSyBWggfffWmZXeVCDZ1OKLoRLDa-VVD6MPE",
@@ -47,6 +51,22 @@
           console.error('Firestore watch error:', err);
           if(onError) onError(err);
         });
+      };
+
+      const auth = getAuth(app);
+
+      window.fbLogin = async function(password){
+        try{
+          await signInWithEmailAndPassword(auth, TEAM_EMAIL, password);
+          return true;
+        }catch(e){
+          console.error('Login error:', e);
+          return false;
+        }
+      };
+
+      window.fbOnAuthChange = function(callback){
+        onAuthStateChanged(auth, (user) => callback(!!user));
       };
 
       window.__firebaseReady = true;
@@ -232,11 +252,20 @@
     display:flex; align-items:center; justify-content:center;
     max-width:720px; margin:0 auto;
   }
+  .fab-sub2{
+    position:fixed; right:20px; bottom:156px; z-index:30;
+    width:44px; height:44px; border-radius:50%; border:none;
+    background:var(--green); color:#fff; font-size:18px;
+    box-shadow:0 4px 14px rgba(21,115,71,.35); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    max-width:720px; margin:0 auto;
+  }
   .fab-wrap{ position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center; pointer-events:none; }
   .fab-wrap .fab-inner{ position:relative; width:100%; max-width:720px; height:0; pointer-events:none; }
   .fab-wrap button{ pointer-events:auto; position:absolute; right:20px; }
   .fab-wrap .fab{ bottom:20px; }
   .fab-wrap .fab-sub{ bottom:88px; }
+  .fab-wrap .fab-sub2{ bottom:156px; }
 
   .modal-tabs{ display:flex; gap:6px; margin-bottom:16px; background:#F1F3F5; border-radius:10px; padding:4px; }
   .modal-tab{ flex:1; text-align:center; padding:8px; border-radius:7px; font-size:12.5px; font-weight:600; color:var(--ink-muted); cursor:pointer; }
@@ -309,6 +338,13 @@
   .setup-box p{ font-size:13px; color:var(--ink-muted); line-height:1.6; margin:0 0 14px; }
   .setup-box code{ background:#F1F3F5; padding:1px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:12px; }
   .setup-box ol{ font-size:12.5px; color:var(--ink); line-height:1.9; padding-left:20px; margin:0; }
+
+  .login-input{
+    width:100%; padding:12px 14px; border-radius:9px; border:1px solid var(--line);
+    font-size:15px; margin-top:14px; text-align:center; letter-spacing:.05em;
+  }
+  .login-input:focus{ outline:2px solid var(--steel); border-color:var(--steel); }
+  .login-err{ color:var(--danger); font-size:12.5px; margin-top:8px; display:none; }
 </style>
 </head>
 <body>
@@ -347,6 +383,7 @@
 </div>
 
 <div class="fab-wrap"><div class="fab-inner">
+  <button class="fab-sub2" id="exportExcel" title="현재 목록 엑셀 다운로드">⬇</button>
   <button class="fab-sub" id="openBulk" title="여러 건 한번에 업로드">📥</button>
   <button class="fab" id="openAdd" title="새 항목 등록">+</button>
 </div></div>
@@ -415,7 +452,7 @@ async function persist(){
   return ok;
 }
 
-function getFiltered(){
+  function getFiltered(){
   let list = [...records];
   if(currentFilter === 'testing') list = list.filter(r => r.status === 'testing');
   if(currentFilter === 'blocked') list = list.filter(r => r.status === 'blocked');
@@ -931,7 +968,7 @@ function closeOverlay(id){
   if(el) el.remove();
 }
 
-let bulkRows = [];
+  let bulkRows = []; // {code, lot, product, reason, memo, valid, include}
 let bulkStatus = 'blocked';
 
 function openBulkModal(){
@@ -1154,9 +1191,46 @@ async function submitBulk(){
   showToast(ok ? `${toAdd.length}건 일괄 등록 완료` : '등록됐지만 저장에 실패했어요');
 }
 
+function exportToExcel(){
+  const list = getFiltered();
+  if(list.length === 0){ showToast('내보낼 항목이 없어요'); return; }
+
+  const rows = list.map(r => ({
+    '제품코드': r.code || '',
+    'LOT번호': r.lot,
+    '제품명': r.product,
+    '상태': STATUS_LABEL[r.status] || r.status,
+    '사유': r.reason || '',
+    '메모': r.memo || '',
+    '등록자': r.registeredBy || '',
+    '등록일시': r.registeredAt ? fmtDate(r.registeredAt) : '',
+    '해제자': r.releasedBy || '',
+    '해제일시': r.releasedAt ? fmtDate(r.releasedAt) : '',
+    '해제메모': r.releaseMemo || '',
+    '부적합처리자': r.testFailBy || '',
+    '부적합처리일시': r.testFailAt ? fmtDate(r.testFailAt) : '',
+    '부적합메모': r.testFailMemo || ''
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [
+    {wch:12},{wch:16},{wch:22},{wch:10},{wch:18},{wch:24},
+    {wch:10},{wch:16},{wch:10},{wch:16},{wch:24},{wch:12},{wch:16},{wch:24}
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '블락배치기록');
+
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const filename = `블락배치_조회기록_${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.xlsx`;
+  XLSX.writeFile(wb, filename);
+  showToast(`${list.length}건 엑셀로 다운로드 완료`);
+}
+
 document.getElementById('openAdd').addEventListener('click', openAddModal);
 document.getElementById('openBulk').addEventListener('click', openBulkModal);
 document.getElementById('openMultiSearch').addEventListener('click', openMultiSearchModal);
+document.getElementById('exportExcel').addEventListener('click', exportToExcel);
 document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; render(); });
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', ()=>{
@@ -1177,25 +1251,67 @@ function showSetupNeeded(){
       <h2>Firebase 설정이 필요해요</h2>
       <p>이 파일의 &lt;script type="module"&gt; 안 <code>firebaseConfig</code> 값을<br>
       Firebase 콘솔에서 복사한 값으로 채워야 앱이 동작해요.</p>
-      <ol>
-        <li>console.firebase.google.com 접속 → 프로젝트 생성</li>
-        <li>Firestore Database 만들기 (테스트 모드)</li>
-        <li>프로젝트 설정 → 내 앱 → 웹 앱 추가 → SDK 설정값 복사</li>
-        <li>이 HTML 파일을 열어 <code>firebaseConfig</code> 값 붙여넣기</li>
-        <li>파일 저장 후 다시 배포/새로고침</li>
-      </ol>
     </div>`;
   document.body.appendChild(el);
+}
+
+function showLoginScreen(){
+  document.getElementById('app').style.display = 'none';
+  const el = document.createElement('div');
+  el.className = 'setup-screen';
+  el.id = 'loginScreen';
+  el.innerHTML = `
+    <div class="setup-box" style="text-align:center;">
+      <div class="setup-icon">🔒</div>
+      <h2>비밀번호 입력</h2>
+      <p>팀 공용 비밀번호를 입력하면 들어갈 수 있어요.</p>
+      <input class="login-input" id="loginPw" type="password" placeholder="비밀번호">
+      <div class="login-err" id="loginErr">비밀번호가 틀렸어요. 다시 확인해주세요.</div>
+      <button class="btn-submit" style="width:100%; margin-top:14px;" id="loginBtn">입장</button>
+    </div>`;
+  document.body.appendChild(el);
+
+  const submit = async ()=>{
+    const pw = document.getElementById('loginPw').value;
+    if(!pw) return;
+    const btn = document.getElementById('loginBtn');
+    const err = document.getElementById('loginErr');
+    err.style.display = 'none';
+    btn.textContent = '확인 중...';
+    btn.disabled = true;
+    const ok = await window.fbLogin(pw);
+    if(ok){
+      el.remove();
+      document.getElementById('app').style.display = '';
+      initRealtimeSync();
+    } else {
+      err.style.display = 'block';
+      btn.textContent = '입장';
+      btn.disabled = false;
+    }
+  };
+  document.getElementById('loginBtn').addEventListener('click', submit);
+  document.getElementById('loginPw').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') submit(); });
+  document.getElementById('loginPw').focus();
 }
 
 (async function init(){
   loadMyName();
   await waitForFirebase();
-  if(window.__firebaseReady){
-    initRealtimeSync();
-  } else {
+  if(!window.__firebaseReady){
     showSetupNeeded();
+    return;
   }
+  window.fbOnAuthChange((isLoggedIn)=>{
+    if(isLoggedIn){
+      const existingLogin = document.getElementById('loginScreen');
+      if(existingLogin) existingLogin.remove();
+      document.getElementById('app').style.display = '';
+      initRealtimeSync();
+    } else {
+      showLoginScreen();
+    }
+  });
 })();
 </script>
 </body>
