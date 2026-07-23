@@ -825,12 +825,21 @@ async function submitAdd(){
     return;
   }
 
+  const data = { code, lot, product, reason, memo, by, testRequestedAtRaw };
   const dup = records.find(r => r.lot.trim().toLowerCase() === lot.toLowerCase());
   if(dup){
-    const ok = confirm(`이미 등록된 LOT이에요 (상태: ${STATUS_LABEL[dup.status] || dup.status}, 등록자: ${dup.registeredBy}).\n그래도 새로 등록할까요?`);
-    if(!ok) return;
+    showAppConfirm(
+      `이미 등록된 LOT이에요 (상태: ${STATUS_LABEL[dup.status] || dup.status}, 등록자: ${dup.registeredBy}).\n그래도 새로 등록할까요?`,
+      '그래도 등록',
+      ()=> doAddRecord(data)
+    );
+    return;
   }
+  doAddRecord(data);
+}
 
+async function doAddRecord(data){
+  const { code, lot, product, reason, memo, by, testRequestedAtRaw } = data;
   const testRequestedAt = (addStatus === 'testing' && testRequestedAtRaw) ? new Date(testRequestedAtRaw + 'T00:00:00').toISOString() : null;
 
   const rec = {
@@ -864,7 +873,7 @@ function openEdit(id){
       <div class="field"><label>LOT / 배치번호 *</label><input id="e_lot" type="text" value="${escapeHtml(rec.lot)}"></div>
       <div class="field"><label>제품명 *</label><input id="e_product" type="text" value="${escapeHtml(rec.product)}"></div>
       <div class="field"><label>사유</label>
-        <select id="e_reason">${REASONS.map(r=>`<option value="${r}" ${r===rec.reason?'selected':''}>${r}</option>`).join('')}</select>
+        <select id="e_reason">${((rec.reason && !REASONS.includes(rec.reason)) ? [rec.reason, ...REASONS] : REASONS).map(r=>`<option value="${escapeHtml(r)}" ${r===rec.reason?'selected':''}>${escapeHtml(r)}${!REASONS.includes(r) ? ' (기존 값)' : ''}</option>`).join('')}</select>
       </div>
       ${rec.status === 'testing' ? `
       <div class="field">
@@ -899,12 +908,7 @@ async function submitEdit(id){
   const rec = records.find(r => r.id === id);
   if(!rec) return;
 
-  const dup = records.find(r => r.id !== id && r.lot.trim().toLowerCase() === lot.toLowerCase());
-  if(dup){
-    const ok = confirm(`이미 등록된 LOT과 겹쳐요 (상태: ${STATUS_LABEL[dup.status] || dup.status}).\n그래도 저장할까요?`);
-    if(!ok) return;
-  }
-
+  const lotChanged = lot.toLowerCase() !== rec.lot.trim().toLowerCase();
   const patch = { code, lot, product, reason, memo };
   if(rec.status === 'testing'){
     const testDateEl = document.getElementById('e_testRequestedAt');
@@ -912,6 +916,21 @@ async function submitEdit(id){
     patch.testRequestedAt = raw ? new Date(raw + 'T00:00:00').toISOString() : null;
   }
 
+  if(lotChanged){
+    const dup = records.find(r => r.id !== id && r.lot.trim().toLowerCase() === lot.toLowerCase());
+    if(dup){
+      showAppConfirm(
+        `이미 등록된 LOT과 겹쳐요 (상태: ${STATUS_LABEL[dup.status] || dup.status}).\n그래도 저장할까요?`,
+        '그래도 저장',
+        ()=> doSaveEdit(id, rec, patch)
+      );
+      return;
+    }
+  }
+  doSaveEdit(id, rec, patch);
+}
+
+async function doSaveEdit(id, rec, patch){
   Object.assign(rec, patch);
   render();
   closeOverlay('editOverlay');
@@ -1188,6 +1207,26 @@ async function submitRelease(id){
   await saveMyName(by);
   const ok = await window.fbUpdateRecord(id, { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo });
   showToast(ok ? '해제 처리 완료' : '처리됐지만 저장에 실패했어요');
+}
+
+function showAppConfirm(message, confirmLabel, onConfirm){
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'appConfirmOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>확인</h2>
+      <p style="font-size:13.5px; color:var(--ink); line-height:1.6; white-space:pre-line;">${escapeHtml(message)}</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="appConfirmCancel">취소</button>
+        <button class="btn-submit" id="appConfirmOk">${escapeHtml(confirmLabel || '확인')}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const cleanup = ()=> closeOverlay('appConfirmOverlay');
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) cleanup(); });
+  document.getElementById('appConfirmCancel').addEventListener('click', cleanup);
+  document.getElementById('appConfirmOk').addEventListener('click', ()=>{ cleanup(); onConfirm(); });
 }
 
 function openDeleteConfirm(id){
@@ -1575,9 +1614,8 @@ document.getElementById('openAdd').addEventListener('click', openAddModal);
 document.getElementById('openBulk').addEventListener('click', openBulkModal);
 document.getElementById('openMultiSearch').addEventListener('click', openMultiSearchModal);
 document.getElementById('exportExcel').addEventListener('click', exportToExcel);
-document.getElementById('logoutBtn').addEventListener('click', async ()=>{
-  if(!confirm('로그아웃 할까요?')) return;
-  await window.fbLogout();
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  showAppConfirm('로그아웃 할까요?', '로그아웃', async ()=>{ await window.fbLogout(); });
 });
 document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; render(); });
 document.getElementById('sortSelect').addEventListener('change', (e)=>{ sortOption = e.target.value; render(); });
