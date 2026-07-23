@@ -533,7 +533,14 @@ function initRealtimeSync(){
     const q = searchTerm.trim().toLowerCase();
     list = list.filter(r => r.lot.toLowerCase().includes(q) || r.product.toLowerCase().includes(q) || (r.code||'').toLowerCase().includes(q));
   }
-  return list.sort((a,b) => new Date(b.registeredAt) - new Date(a.registeredAt));
+  
+return list.sort((a,b) => {
+  const dateDiff = new Date(b.registeredAt) - new Date(a.registeredAt);
+  if(dateDiff !== 0) return dateDiff;
+  const codeDiff = (a.code || '').localeCompare(b.code || '', 'ko');
+  if(codeDiff !== 0) return codeDiff;
+  return (a.lot || '').localeCompare(b.lot || '', 'ko');
+});
 }
 
 const STATUS_LABEL = { testing:'시험검사중', blocked:'블락중', released:'해제됨' };
