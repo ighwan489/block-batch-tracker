@@ -10,7 +10,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { getAuth, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
   // 팀 공용 로그인용 내부 계정 이메일 (실제 메일함 아님, 로그인 ID로만 사용)
   const TEAM_EMAIL = "fmek@korea.com";
@@ -109,28 +109,8 @@
         }
       };
 
-      window.fbGuestLogin = async function(){
-        try{
-          await signInAnonymously(auth);
-          return true;
-        }catch(e){
-          console.error('Guest login error:', e);
-          return false;
-        }
-      };
-
       window.fbOnAuthChange = function(callback){
-        onAuthStateChanged(auth, (user) => callback(!!user, user ? !!user.isAnonymous : false));
-      };
-
-      window.fbLogout = async function(){
-        try{
-          await signOut(auth);
-          return true;
-        }catch(e){
-          console.error('Logout error:', e);
-          return false;
-        }
+        onAuthStateChanged(auth, (user) => callback(!!user));
       };
 
       window.__firebaseReady = true;
@@ -182,11 +162,6 @@
     font-size:20px; margin:0; text-transform:uppercase;
   }
   .subtitle{ font-size:12px; color:#B9C7D4; margin-top:2px; font-weight:500; }
-  .logout-btn{
-    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#DCE5EC;
-    font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:8px; cursor:pointer; white-space:nowrap;
-  }
-  .logout-btn:hover{ background:rgba(255,255,255,.18); }
   .stats-row{ display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
   .stat-chip{
     display:flex; align-items:center; gap:5px;
@@ -226,6 +201,24 @@
     transition:background .15s;
   }
   .tab.active{ background:#fff; color:var(--steel-dark); }
+
+  .sort-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; }
+  .sort-row select{
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#DCE5EC;
+    border-radius:8px; padding:6px 8px; font-size:11.5px; font-weight:600;
+  }
+  .sort-row select option{ color:#1B2430; }
+  .print-btn{
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#DCE5EC;
+    border-radius:8px; padding:6px 10px; font-size:11.5px; font-weight:600; cursor:pointer; white-space:nowrap;
+  }
+
+  .elapsed-badge{
+    display:inline-block; font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:20px; margin-left:6px;
+  }
+  .elapsed-badge.warn1{ background:#FEF3C7; color:#92610A; }
+  .elapsed-badge.warn2{ background:#FDE3CB; color:#9A4A0A; }
+  .elapsed-badge.warn3{ background:#FBD8D3; color:var(--danger); }
 
   .list{ padding:16px 14px 0; display:flex; flex-direction:column; gap:10px; }
   .action-bar{ margin:14px 14px 0; display:flex; flex-direction:column; gap:8px; }
@@ -425,7 +418,6 @@
         <h1>블락배치 조회·기록기</h1>
         <div class="subtitle" id="subtitle">팀 공용 · 실시간 동기화 (Firebase)</div>
       </div>
-      <button class="logout-btn" id="logoutBtn">로그아웃</button>
     </div>
     <div class="stats-row">
       <div class="stat-chip c-testing">시험검사중 <span class="n" id="testingCount">-</span></div>
@@ -443,6 +435,14 @@
       <div class="tab" data-filter="testing">시험검사중</div>
       <div class="tab" data-filter="blocked">블락중</div>
       <div class="tab" data-filter="released">해제됨</div>
+    </div>
+    <div class="sort-row">
+      <select id="sortSelect">
+        <option value="recent">최신 등록순</option>
+        <option value="lot">LOT명순</option>
+        <option value="elapsed">경과일 오래된순</option>
+      </select>
+      <button class="print-btn" id="openPrintView">🖨 인쇄용 요약</button>
     </div>
   </header>
 
@@ -466,7 +466,7 @@ let currentFilter = 'all';
 let searchTerm = '';
 let multiLotTokens = [];
 let myName = '';
-let isGuestMode = false;
+let sortOption = 'recent';
 
 const REASONS = ['품질이상(시험검사 부적합)','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
 
@@ -485,6 +485,34 @@ function fmtDate(iso){
   const d = new Date(iso);
   const pad = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function elapsedDays(iso){
+  if(!iso) return 0;
+  const ms = Date.now() - new Date(iso).getTime();
+  return Math.max(0, Math.floor(ms / 86400000));
+}
+
+// 상태별 경과일 기준일(basis) 계산: 블락은 부적합 전환일 우선, 없으면 등록일
+function elapsedBasisIso(r){
+  if(r.status === 'blocked') return r.testFailAt || r.registeredAt;
+  return r.registeredAt;
+}
+
+function elapsedBadgeHtml(r){
+  const days = elapsedDays(elapsedBasisIso(r));
+  if(r.status === 'testing'){
+    if(days > 45) return `<span class="elapsed-badge warn3">🔴 ${days}일 경과 (장기지연)</span>`;
+    if(days > 30) return `<span class="elapsed-badge warn2">🟡 ${days}일 경과 (지연)</span>`;
+    return '';
+  }
+  if(r.status === 'blocked'){
+    if(days > 365) return `<span class="elapsed-badge warn3">🔴 ${days}일 경과 (초장기)</span>`;
+    if(days > 180) return `<span class="elapsed-badge warn2">🟠 ${days}일 경과 (장기)</span>`;
+    if(days > 30) return `<span class="elapsed-badge warn1">🟡 ${days}일 경과</span>`;
+    return '';
+  }
+  return '';
 }
 
 function loadMyName(){
@@ -533,14 +561,18 @@ function initRealtimeSync(){
     const q = searchTerm.trim().toLowerCase();
     list = list.filter(r => r.lot.toLowerCase().includes(q) || r.product.toLowerCase().includes(q) || (r.code||'').toLowerCase().includes(q));
   }
-  
-return list.sort((a,b) => {
-  const dateDiff = new Date(b.registeredAt) - new Date(a.registeredAt);
-  if(dateDiff !== 0) return dateDiff;
-  const codeDiff = (a.code || '').localeCompare(b.code || '', 'ko');
-  if(codeDiff !== 0) return codeDiff;
-  return (a.lot || '').localeCompare(b.lot || '', 'ko');
-});
+
+  if(sortOption === 'lot'){
+    return list.sort((a,b) => a.lot.localeCompare(b.lot, 'ko'));
+  }
+  if(sortOption === 'elapsed'){
+    return list.sort((a,b) => {
+      const da = new Date(elapsedBasisIso(a) || a.registeredAt);
+      const db = new Date(elapsedBasisIso(b) || b.registeredAt);
+      return da - db; // 오래된(기준일이 이른) 순
+    });
+  }
+  return list.sort((a,b) => new Date(b.registeredAt) - new Date(a.registeredAt));
 }
 
 const STATUS_LABEL = { testing:'시험검사중', blocked:'블락중', released:'해제됨' };
@@ -558,11 +590,11 @@ function render(){
   let rows = '';
   if(filteredTestingList.length > 0){
     const label = isNarrowed ? `🔵 검색·필터된 시험검사중 ${filteredTestingList.length}건` : `🔵 시험검사중 ${filteredTestingList.length}건`;
-    rows += `<div class="action-row"><span>${label}</span>${isGuestMode ? '' : `<button onclick="openBulkTestResult()">일괄 검사결과 처리</button>`}</div>`;
+    rows += `<div class="action-row"><span>${label}</span><button onclick="openBulkTestResult()">일괄 검사결과 처리</button></div>`;
   }
   if(filteredBlockedList.length > 0){
     const label = isNarrowed ? `🟠 검색·필터된 블락중 ${filteredBlockedList.length}건` : `🟠 블락중 ${filteredBlockedList.length}건`;
-    rows += `<div class="action-row amber"><span>${label}</span>${isGuestMode ? '' : `<button onclick="openBulkRelease()">일괄 해제 처리</button>`}</div>`;
+    rows += `<div class="action-row amber"><span>${label}</span><button onclick="openBulkRelease()">일괄 해제 처리</button></div>`;
   }
   if(rows){
     bar.style.display = 'flex';
@@ -595,6 +627,7 @@ function render(){
           </div>
           <span class="badge ${status}">${STATUS_LABEL[status]}</span>
         </div>
+        ${elapsedBadgeHtml(r)}
         <span class="reason-tag">${escapeHtml(r.reason)}</span>
         ${r.memo ? `<div class="memo">${escapeHtml(r.memo)}</div>` : ''}
         <div class="meta-row">
@@ -611,12 +644,12 @@ function render(){
           <b>부적합 처리</b> · ${escapeHtml(r.testFailBy)} · ${r.testFailAt ? fmtDate(r.testFailAt) : ''}
           ${r.testFailMemo ? `<div class="memo" style="margin-top:6px;">${escapeHtml(r.testFailMemo)}</div>` : ''}
         </div>` : ''}
-        ${isGuestMode ? '' : `
         <div class="card-actions">
           ${status === 'testing' ? `<button class="btn-sm btn-test" onclick="openTestResult('${r.id}')">검사 결과 입력</button>` : ''}
           ${status === 'blocked' ? `<button class="btn-sm btn-release" onclick="openRelease('${r.id}')">해제 처리</button>` : ''}
+          <button class="btn-sm" style="background:#EAF0F5; color:var(--steel-dark);" onclick="openEdit('${r.id}')">수정</button>
           <button class="btn-sm btn-del" onclick="deleteRecord('${r.id}')">삭제</button>
-        </div>`}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -748,6 +781,12 @@ async function submitAdd(){
     return;
   }
 
+  const dup = records.find(r => r.lot.trim().toLowerCase() === lot.toLowerCase());
+  if(dup){
+    const ok = confirm(`이미 등록된 LOT이에요 (상태: ${STATUS_LABEL[dup.status] || dup.status}, 등록자: ${dup.registeredBy}).\n그래도 새로 등록할까요?`);
+    if(!ok) return;
+  }
+
   const rec = {
     id: genId(),
     lot, product, code, reason, memo,
@@ -763,6 +802,61 @@ async function submitAdd(){
   await saveMyName(by);
   const ok = await window.fbAddRecord(rec);
   showToast(ok ? (addStatus === 'testing' ? '시험검사중으로 등록 완료' : '블락 등록 완료') : '등록됐지만 저장에 실패했어요');
+}
+
+function openEdit(id){
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'editOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>기록 수정</h2>
+      <div class="field"><label>제품코드</label><input id="e_code" type="text" value="${escapeHtml(rec.code || '')}" placeholder="예: PC-1234 (선택)"></div>
+      <div class="field"><label>LOT / 배치번호 *</label><input id="e_lot" type="text" value="${escapeHtml(rec.lot)}"></div>
+      <div class="field"><label>제품명 *</label><input id="e_product" type="text" value="${escapeHtml(rec.product)}"></div>
+      <div class="field"><label>사유</label>
+        <select id="e_reason">${REASONS.map(r=>`<option value="${r}" ${r===rec.reason?'selected':''}>${r}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>상세 메모</label><textarea id="e_memo">${escapeHtml(rec.memo || '')}</textarea></div>
+      <div class="hint">상태(시험검사중·블락중·해제됨) 변경은 각 카드의 처리 버튼으로 해주세요. 여기선 정보 수정만 가능해요.</div>
+      <div class="err" id="e_err">LOT과 제품명은 필수예요</div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('editOverlay')">취소</button>
+        <button class="btn-submit" onclick="submitEdit('${id}')">수정 저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('editOverlay'); });
+}
+
+async function submitEdit(id){
+  const code = document.getElementById('e_code').value.trim();
+  const lot = document.getElementById('e_lot').value.trim();
+  const product = document.getElementById('e_product').value.trim();
+  const reason = document.getElementById('e_reason').value;
+  const memo = document.getElementById('e_memo').value.trim();
+
+  if(!lot || !product){
+    document.getElementById('e_err').style.display = 'block';
+    return;
+  }
+
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+
+  const dup = records.find(r => r.id !== id && r.lot.trim().toLowerCase() === lot.toLowerCase());
+  if(dup){
+    const ok = confirm(`이미 등록된 LOT과 겹쳐요 (상태: ${STATUS_LABEL[dup.status] || dup.status}).\n그래도 저장할까요?`);
+    if(!ok) return;
+  }
+
+  rec.code = code; rec.lot = lot; rec.product = product; rec.reason = reason; rec.memo = memo;
+  render();
+  closeOverlay('editOverlay');
+  const ok = await window.fbUpdateRecord(id, { code, lot, product, reason, memo });
+  showToast(ok ? '수정 완료' : '수정됐지만 저장에 실패했어요');
 }
 
 let testResultChoice = 'pass';
@@ -1044,21 +1138,6 @@ async function deleteRecord(id){
   showToast(ok ? '삭제 완료' : '삭제됐지만 저장에 실패했어요');
 }
 
-function applyGuestModeUI(){
-  const addBtn = document.getElementById('openAdd');
-  const bulkBtn = document.getElementById('openBulk');
-  const subtitle = document.getElementById('subtitle');
-  if(isGuestMode){
-    if(addBtn) addBtn.style.display = 'none';
-    if(bulkBtn) bulkBtn.style.display = 'none';
-    if(subtitle) subtitle.textContent = '게스트 모드 · 조회 전용 (편집 불가)';
-  } else {
-    if(addBtn) addBtn.style.display = '';
-    if(bulkBtn) bulkBtn.style.display = '';
-    if(subtitle) subtitle.textContent = '팀 공용 · 실시간 동기화 (Firebase)';
-  }
-}
-
 function closeOverlay(id){
   const el = document.getElementById(id);
   if(el) el.remove();
@@ -1237,14 +1316,30 @@ function normalizeRow(code, lot, product, reason, memo){
   return { code, lot, product, reason, memo, valid, include: valid };
 }
 
+function findDupInfo(lot){
+  if(!lot) return null;
+  const existing = records.find(r => r.lot.trim().toLowerCase() === lot.toLowerCase());
+  if(existing) return `기존 등록됨(${STATUS_LABEL[existing.status] || existing.status})`;
+  return null;
+}
+
 function renderPreview(){
   const validCount = bulkRows.filter(r=>r.valid).length;
+  const seen = {};
+  bulkRows.forEach(r=>{
+    const key = r.lot.toLowerCase();
+    r._existingDup = r.valid ? findDupInfo(r.lot) : null;
+    r._withinDup = r.valid && key && seen[key];
+    if(r.valid && key) seen[key] = true;
+  });
+  const dupCount = bulkRows.filter(r => r._existingDup || r._withinDup).length;
+
   document.getElementById('previewSummary').innerHTML =
-    `총 <b>${bulkRows.length}</b>행 인식 · 유효 <b>${validCount}</b>건 ${bulkRows.length - validCount > 0 ? `· LOT/제품명 누락 ${bulkRows.length - validCount}건은 제외됐어요` : ''}`;
+    `총 <b>${bulkRows.length}</b>행 인식 · 유효 <b>${validCount}</b>건 ${bulkRows.length - validCount > 0 ? `· LOT/제품명 누락 ${bulkRows.length - validCount}건은 제외됐어요` : ''}${dupCount > 0 ? ` · <span style="color:var(--danger);">중복 LOT ${dupCount}건 발견 (체크 확인해주세요)</span>` : ''}`;
 
   const table = document.getElementById('previewTable');
   table.innerHTML = `
-    <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유</th></tr></thead>
+    <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유</th><th>중복</th></tr></thead>
     <tbody>
       ${bulkRows.map((r,i)=>`
         <tr class="${r.valid ? '' : 'invalid'}">
@@ -1253,6 +1348,7 @@ function renderPreview(){
           <td class="pv-lot">${escapeHtml(r.lot) || '-'}</td>
           <td>${escapeHtml(r.product) || '-'}</td>
           <td>${escapeHtml(r.reason)}</td>
+          <td>${r._existingDup ? `<span style="color:var(--danger); font-weight:600;">⚠ ${r._existingDup}</span>` : (r._withinDup ? `<span style="color:var(--amber); font-weight:600;">⚠ 목록 내 중복</span>` : '')}</td>
         </tr>`).join('')}
     </tbody>`;
 }
@@ -1284,6 +1380,57 @@ async function submitBulk(){
   await saveMyName(by);
   const ok = await window.fbBulkAdd(newRecords);
   showToast(ok ? `${toAdd.length}건 일괄 등록 완료` : '등록됐지만 저장에 실패했어요');
+}
+
+function openPrintView(){
+  const list = getFiltered();
+  if(list.length === 0){ showToast('인쇄할 항목이 없어요'); return; }
+
+  const filterLabel = { all:'전체', testing:'시험검사중', blocked:'블락중', released:'해제됨' }[currentFilter];
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const printedAt = `${now.getFullYear()}.${pad(now.getMonth()+1)}.${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const rowsHtml = list.map(r => {
+    const days = elapsedDays(elapsedBasisIso(r));
+    const showDays = (r.status === 'testing' || r.status === 'blocked') ? `${days}일` : '-';
+    return `<tr>
+      <td>${escapeHtml(r.code) || '-'}</td>
+      <td style="font-weight:700;">${escapeHtml(r.lot)}</td>
+      <td>${escapeHtml(r.product)}</td>
+      <td>${STATUS_LABEL[r.status] || r.status}</td>
+      <td>${escapeHtml(r.reason || '')}</td>
+      <td>${showDays}</td>
+      <td>${escapeHtml(r.registeredBy || '')}</td>
+      <td>${r.registeredAt ? fmtDate(r.registeredAt) : ''}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+    <title>블락배치 조회기록 - 인쇄용 요약</title>
+    <style>
+      body{ font-family:'Malgun Gothic',sans-serif; margin:24px; color:#1B2430; }
+      h1{ font-size:18px; margin:0 0 4px; }
+      .meta{ font-size:12px; color:#5B6672; margin-bottom:16px; }
+      table{ width:100%; border-collapse:collapse; font-size:12px; }
+      th, td{ border:1px solid #ccc; padding:6px 8px; text-align:left; }
+      th{ background:#EEF1F4; }
+      @media print{ button{ display:none; } }
+    </style></head><body>
+    <h1>블락배치 조회·기록 요약 (${filterLabel})</h1>
+    <div class="meta">출력일시: ${printedAt} · 총 ${list.length}건</div>
+    <button onclick="window.print()" style="margin-bottom:12px; padding:8px 14px;">인쇄하기</button>
+    <table>
+      <thead><tr><th>제품코드</th><th>LOT</th><th>제품명</th><th>상태</th><th>사유</th><th>경과일</th><th>등록자</th><th>등록일시</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    </body></html>`;
+
+  const win = window.open('', '_blank');
+  if(!win){ showToast('팝업이 차단됐어요 - 팝업 허용 후 다시 시도해주세요'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
 }
 
 function exportToExcel(){
@@ -1326,11 +1473,9 @@ document.getElementById('openAdd').addEventListener('click', openAddModal);
 document.getElementById('openBulk').addEventListener('click', openBulkModal);
 document.getElementById('openMultiSearch').addEventListener('click', openMultiSearchModal);
 document.getElementById('exportExcel').addEventListener('click', exportToExcel);
-document.getElementById('logoutBtn').addEventListener('click', async ()=>{
-  if(!confirm('로그아웃 할까요?')) return;
-  await window.fbLogout();
-});
 document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; render(); });
+document.getElementById('sortSelect').addEventListener('change', (e)=>{ sortOption = e.target.value; render(); });
+document.getElementById('openPrintView').addEventListener('click', openPrintView);
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', ()=>{
     document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -1367,8 +1512,6 @@ function showLoginScreen(){
       <input class="login-input" id="loginPw" type="password" placeholder="비밀번호">
       <div class="login-err" id="loginErr">비밀번호가 틀렸어요. 다시 확인해주세요.</div>
       <button class="btn-submit" style="width:100%; margin-top:14px;" id="loginBtn">입장</button>
-      <button class="btn-cancel" style="width:100%; margin-top:10px;" id="guestBtn">게스트로 둘러보기 (조회 전용)</button>
-      <div class="login-err" id="guestErr">게스트 접속에 실패했어요. 잠시 후 다시 시도해주세요.</div>
     </div>`;
   document.body.appendChild(el);
 
@@ -1384,7 +1527,7 @@ function showLoginScreen(){
     if(ok){
       el.remove();
       document.getElementById('app').style.display = '';
-      // isGuestMode는 fbOnAuthChange 콜백에서 갱신됨
+      initRealtimeSync();
     } else {
       err.style.display = 'block';
       btn.textContent = '입장';
@@ -1394,24 +1537,6 @@ function showLoginScreen(){
   document.getElementById('loginBtn').addEventListener('click', submit);
   document.getElementById('loginPw').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') submit(); });
   document.getElementById('loginPw').focus();
-
-  document.getElementById('guestBtn').addEventListener('click', async ()=>{
-    const gbtn = document.getElementById('guestBtn');
-    const gerr = document.getElementById('guestErr');
-    gerr.style.display = 'none';
-    gbtn.textContent = '접속 중...';
-    gbtn.disabled = true;
-    const ok = await window.fbGuestLogin();
-    if(ok){
-      el.remove();
-      document.getElementById('app').style.display = '';
-      // isGuestMode는 fbOnAuthChange 콜백에서 갱신됨
-    } else {
-      gerr.style.display = 'block';
-      gbtn.textContent = '게스트로 둘러보기 (조회 전용)';
-      gbtn.disabled = false;
-    }
-  });
 }
 
 (async function init(){
@@ -1421,16 +1546,13 @@ function showLoginScreen(){
     showSetupNeeded();
     return;
   }
-  window.fbOnAuthChange((isLoggedIn, isAnonymous)=>{
+  window.fbOnAuthChange((isLoggedIn)=>{
     if(isLoggedIn){
-      isGuestMode = !!isAnonymous;
       const existingLogin = document.getElementById('loginScreen');
       if(existingLogin) existingLogin.remove();
       document.getElementById('app').style.display = '';
-      applyGuestModeUI();
       initRealtimeSync();
     } else {
-      isGuestMode = false;
       showLoginScreen();
     }
   });
