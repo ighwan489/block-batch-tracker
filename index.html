@@ -494,7 +494,7 @@ let myName = '';
 let isGuestMode = false;
 let sortOption = 'recent';
 
-const REASONS = ['품질이상(시험검사 부적합)','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
+const REASONS = ['신규배치 시험검사(출하승인 대기)','품질이상','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
 
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -519,8 +519,11 @@ function elapsedDays(iso){
   return Math.max(0, Math.floor(ms / 86400000));
 }
 
-// 상태별 경과일 기준일(basis) 계산: 블락은 부적합 전환일 우선, 없으면 등록일
+// 상태별 경과일 기준일(basis) 계산
+// - 시험검사중: 검사의뢰일(있으면) 우선, 없으면 등록일
+// - 블락중: 부적합 전환일(있으면) 우선, 없으면 등록일
 function elapsedBasisIso(r){
+  if(r.status === 'testing') return r.testRequestedAt || r.registeredAt;
   if(r.status === 'blocked') return r.testFailAt || r.registeredAt;
   return r.registeredAt;
 }
@@ -659,6 +662,7 @@ function render(){
         <div class="meta-row">
           <span>등록 <b>${escapeHtml(r.registeredBy)}</b></span>
           <span>${fmtDate(r.registeredAt)}</span>
+          ${status === 'testing' ? `<span>의뢰일 <b>${fmtDate(elapsedBasisIso(r)).split(' ')[0]}</b>${r.testRequestedAt ? '' : ' (등록일 기준)'}</span>` : ''}
         </div>
         ${status === 'released' ? `
         <div class="release-info">
@@ -772,6 +776,11 @@ function openAddModal(){
       <div class="field"><label id="f_reason_label">블락 사유 *</label>
         <select id="f_reason">${REASONS.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
       </div>
+      <div class="field" id="f_testDateWrap" style="display:none;">
+        <label>검사의뢰일 (선택)</label>
+        <input id="f_testRequestedAt" type="date">
+        <div class="hint">비워두면 등록일자로 자동 설정돼요. 달력 아이콘으로 선택하거나 직접 입력(연-월-일)할 수 있어요.</div>
+      </div>
       <div class="field"><label>상세 메모</label><textarea id="f_memo" placeholder="상세 내용 (선택)"></textarea></div>
       <div class="field"><label>등록자 *</label><input id="f_by" type="text" placeholder="이름" value="${escapeHtml(myName)}"></div>
       <div class="err" id="f_err">필수 항목을 입력해주세요</div>
@@ -782,6 +791,7 @@ function openAddModal(){
     </div>`;
   document.body.appendChild(overlay);
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('addOverlay'); });
+  document.getElementById('f_reason').value = '품질이상';
 
   overlay.querySelectorAll('#addSeg .seg-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -791,8 +801,14 @@ function openAddModal(){
       const isTesting = addStatus === 'testing';
       document.getElementById('f_reason_label').textContent = isTesting ? '검사 사유' : '블락 사유 *';
       document.getElementById('addSubmitBtn').textContent = isTesting ? '시험검사중으로 등록' : '블락 등록';
+      document.getElementById('f_testDateWrap').style.display = isTesting ? 'block' : 'none';
+      const reasonSelect = document.getElementById('f_reason');
+      if(reasonSelect.dataset.userTouched !== 'true'){
+        reasonSelect.value = isTesting ? '신규배치 시험검사(출하승인 대기)' : '품질이상';
+      }
     });
   });
+  document.getElementById('f_reason').addEventListener('change', (e)=>{ e.target.dataset.userTouched = 'true'; });
 }
 
 async function submitAdd(){
@@ -802,6 +818,7 @@ async function submitAdd(){
   const reason = document.getElementById('f_reason').value;
   const memo = document.getElementById('f_memo').value.trim();
   const by = document.getElementById('f_by').value.trim();
+  const testRequestedAtRaw = document.getElementById('f_testRequestedAt').value; // YYYY-MM-DD or ''
 
   if(!lot || !product || !by){
     document.getElementById('f_err').style.display = 'block';
@@ -814,12 +831,15 @@ async function submitAdd(){
     if(!ok) return;
   }
 
+  const testRequestedAt = (addStatus === 'testing' && testRequestedAtRaw) ? new Date(testRequestedAtRaw + 'T00:00:00').toISOString() : null;
+
   const rec = {
     id: genId(),
     lot, product, code, reason, memo,
     registeredBy: by,
     registeredAt: new Date().toISOString(),
     status: addStatus,
+    testRequestedAt,
     releasedBy: null, releasedAt: null, releaseMemo: null,
     testFailBy: null, testFailAt: null, testFailMemo: null
   };
@@ -846,6 +866,12 @@ function openEdit(id){
       <div class="field"><label>사유</label>
         <select id="e_reason">${REASONS.map(r=>`<option value="${r}" ${r===rec.reason?'selected':''}>${r}</option>`).join('')}</select>
       </div>
+      ${rec.status === 'testing' ? `
+      <div class="field">
+        <label>검사의뢰일 (선택)</label>
+        <input id="e_testRequestedAt" type="date" value="${rec.testRequestedAt ? rec.testRequestedAt.slice(0,10) : ''}">
+        <div class="hint">비워두면 등록일자로 자동 설정돼요.</div>
+      </div>` : ''}
       <div class="field"><label>상세 메모</label><textarea id="e_memo">${escapeHtml(rec.memo || '')}</textarea></div>
       <div class="hint">상태(시험검사중·블락중·해제됨) 변경은 각 카드의 처리 버튼으로 해주세요. 여기선 정보 수정만 가능해요.</div>
       <div class="err" id="e_err">LOT과 제품명은 필수예요</div>
@@ -879,10 +905,17 @@ async function submitEdit(id){
     if(!ok) return;
   }
 
-  rec.code = code; rec.lot = lot; rec.product = product; rec.reason = reason; rec.memo = memo;
+  const patch = { code, lot, product, reason, memo };
+  if(rec.status === 'testing'){
+    const testDateEl = document.getElementById('e_testRequestedAt');
+    const raw = testDateEl ? testDateEl.value : '';
+    patch.testRequestedAt = raw ? new Date(raw + 'T00:00:00').toISOString() : null;
+  }
+
+  Object.assign(rec, patch);
   render();
   closeOverlay('editOverlay');
-  const ok = await window.fbUpdateRecord(id, { code, lot, product, reason, memo });
+  const ok = await window.fbUpdateRecord(id, patch);
   showToast(ok ? '수정 완료' : '수정됐지만 저장에 실패했어요');
 }
 
@@ -1157,12 +1190,39 @@ async function submitRelease(id){
   showToast(ok ? '해제 처리 완료' : '처리됐지만 저장에 실패했어요');
 }
 
-async function deleteRecord(id){
-  if(!confirm('이 기록을 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
+function openDeleteConfirm(id){
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'delConfirmOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>기록 삭제</h2>
+      <div class="field">
+        <label>LOT</label>
+        <input type="text" value="${escapeHtml(rec.lot)}" disabled>
+      </div>
+      <p style="font-size:13px; color:var(--danger); margin:0 0 8px;">이 기록을 삭제할까요? 삭제하면 되돌릴 수 없어요.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('delConfirmOverlay')">취소</button>
+        <button class="btn-submit danger" onclick="confirmDeleteRecord('${id}')">삭제</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('delConfirmOverlay'); });
+}
+
+async function confirmDeleteRecord(id){
+  closeOverlay('delConfirmOverlay');
   records = records.filter(r => r.id !== id);
   render();
   const ok = await window.fbDeleteRecord(id);
   showToast(ok ? '삭제 완료' : '삭제됐지만 저장에 실패했어요');
+}
+
+async function deleteRecord(id){
+  openDeleteConfirm(id);
 }
 
 function applyGuestModeUI(){
