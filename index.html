@@ -10,7 +10,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { getAuth, signInWithEmailAndPassword, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getAuth, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
   // 팀 공용 로그인용 내부 계정 이메일 (실제 메일함 아님, 로그인 ID로만 사용)
   const TEAM_EMAIL = "fmek@korea.com";
@@ -123,6 +123,16 @@
         onAuthStateChanged(auth, (user) => callback(!!user, user ? !!user.isAnonymous : false));
       };
 
+      window.fbLogout = async function(){
+        try{
+          await signOut(auth);
+          return true;
+        }catch(e){
+          console.error('Logout error:', e);
+          return false;
+        }
+      };
+
       window.__firebaseReady = true;
     }catch(e){
       console.error('Firebase init error:', e);
@@ -172,6 +182,11 @@
     font-size:20px; margin:0; text-transform:uppercase;
   }
   .subtitle{ font-size:12px; color:#B9C7D4; margin-top:2px; font-weight:500; }
+  .logout-btn{
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#DCE5EC;
+    font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:8px; cursor:pointer; white-space:nowrap;
+  }
+  .logout-btn:hover{ background:rgba(255,255,255,.18); }
   .stats-row{ display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
   .stat-chip{
     display:flex; align-items:center; gap:5px;
@@ -410,6 +425,7 @@
         <h1>블락배치 조회·기록기</h1>
         <div class="subtitle" id="subtitle">팀 공용 · 실시간 동기화 (Firebase)</div>
       </div>
+      <button class="logout-btn" id="logoutBtn">로그아웃</button>
     </div>
     <div class="stats-row">
       <div class="stat-chip c-testing">시험검사중 <span class="n" id="testingCount">-</span></div>
@@ -1303,6 +1319,10 @@ document.getElementById('openAdd').addEventListener('click', openAddModal);
 document.getElementById('openBulk').addEventListener('click', openBulkModal);
 document.getElementById('openMultiSearch').addEventListener('click', openMultiSearchModal);
 document.getElementById('exportExcel').addEventListener('click', exportToExcel);
+document.getElementById('logoutBtn').addEventListener('click', async ()=>{
+  if(!confirm('로그아웃 할까요?')) return;
+  await window.fbLogout();
+});
 document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; render(); });
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', ()=>{
