@@ -10,7 +10,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getAuth, signInWithEmailAndPassword, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
   // 팀 공용 로그인용 내부 계정 이메일 (실제 메일함 아님, 로그인 ID로만 사용)
   const TEAM_EMAIL = "fmek@korea.com";
@@ -109,8 +109,18 @@
         }
       };
 
+      window.fbGuestLogin = async function(){
+        try{
+          await signInAnonymously(auth);
+          return true;
+        }catch(e){
+          console.error('Guest login error:', e);
+          return false;
+        }
+      };
+
       window.fbOnAuthChange = function(callback){
-        onAuthStateChanged(auth, (user) => callback(!!user));
+        onAuthStateChanged(auth, (user) => callback(!!user, user ? !!user.isAnonymous : false));
       };
 
       window.__firebaseReady = true;
@@ -440,6 +450,7 @@ let currentFilter = 'all';
 let searchTerm = '';
 let multiLotTokens = [];
 let myName = '';
+let isGuestMode = false;
 
 const REASONS = ['품질이상(시험검사 부적합)','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
 
@@ -490,8 +501,6 @@ function initRealtimeSync(){
   );
 }
 
-// (전역 persist() 제거됨 — 이제 항목별로 fbAddRecord/fbUpdateRecord/fbDeleteRecord/fbBulkAdd/fbBulkUpdate 사용)
-
   function getFiltered(){
   let list = [...records];
   if(currentFilter === 'testing') list = list.filter(r => r.status === 'testing');
@@ -526,11 +535,11 @@ function render(){
   let rows = '';
   if(filteredTestingList.length > 0){
     const label = isNarrowed ? `🔵 검색·필터된 시험검사중 ${filteredTestingList.length}건` : `🔵 시험검사중 ${filteredTestingList.length}건`;
-    rows += `<div class="action-row"><span>${label}</span><button onclick="openBulkTestResult()">일괄 검사결과 처리</button></div>`;
+    rows += `<div class="action-row"><span>${label}</span>${isGuestMode ? '' : `<button onclick="openBulkTestResult()">일괄 검사결과 처리</button>`}</div>`;
   }
   if(filteredBlockedList.length > 0){
     const label = isNarrowed ? `🟠 검색·필터된 블락중 ${filteredBlockedList.length}건` : `🟠 블락중 ${filteredBlockedList.length}건`;
-    rows += `<div class="action-row amber"><span>${label}</span><button onclick="openBulkRelease()">일괄 해제 처리</button></div>`;
+    rows += `<div class="action-row amber"><span>${label}</span>${isGuestMode ? '' : `<button onclick="openBulkRelease()">일괄 해제 처리</button>`}</div>`;
   }
   if(rows){
     bar.style.display = 'flex';
@@ -579,11 +588,12 @@ function render(){
           <b>부적합 처리</b> · ${escapeHtml(r.testFailBy)} · ${r.testFailAt ? fmtDate(r.testFailAt) : ''}
           ${r.testFailMemo ? `<div class="memo" style="margin-top:6px;">${escapeHtml(r.testFailMemo)}</div>` : ''}
         </div>` : ''}
+        ${isGuestMode ? '' : `
         <div class="card-actions">
           ${status === 'testing' ? `<button class="btn-sm btn-test" onclick="openTestResult('${r.id}')">검사 결과 입력</button>` : ''}
           ${status === 'blocked' ? `<button class="btn-sm btn-release" onclick="openRelease('${r.id}')">해제 처리</button>` : ''}
           <button class="btn-sm btn-del" onclick="deleteRecord('${r.id}')">삭제</button>
-        </div>
+        </div>`}
       </div>
     </div>`;
   }).join('');
@@ -1011,6 +1021,21 @@ async function deleteRecord(id){
   showToast(ok ? '삭제 완료' : '삭제됐지만 저장에 실패했어요');
 }
 
+function applyGuestModeUI(){
+  const addBtn = document.getElementById('openAdd');
+  const bulkBtn = document.getElementById('openBulk');
+  const subtitle = document.getElementById('subtitle');
+  if(isGuestMode){
+    if(addBtn) addBtn.style.display = 'none';
+    if(bulkBtn) bulkBtn.style.display = 'none';
+    if(subtitle) subtitle.textContent = '게스트 모드 · 조회 전용 (편집 불가)';
+  } else {
+    if(addBtn) addBtn.style.display = '';
+    if(bulkBtn) bulkBtn.style.display = '';
+    if(subtitle) subtitle.textContent = '팀 공용 · 실시간 동기화 (Firebase)';
+  }
+}
+
 function closeOverlay(id){
   const el = document.getElementById(id);
   if(el) el.remove();
@@ -1315,6 +1340,8 @@ function showLoginScreen(){
       <input class="login-input" id="loginPw" type="password" placeholder="비밀번호">
       <div class="login-err" id="loginErr">비밀번호가 틀렸어요. 다시 확인해주세요.</div>
       <button class="btn-submit" style="width:100%; margin-top:14px;" id="loginBtn">입장</button>
+      <button class="btn-cancel" style="width:100%; margin-top:10px;" id="guestBtn">게스트로 둘러보기 (조회 전용)</button>
+      <div class="login-err" id="guestErr">게스트 접속에 실패했어요. 잠시 후 다시 시도해주세요.</div>
     </div>`;
   document.body.appendChild(el);
 
@@ -1330,7 +1357,7 @@ function showLoginScreen(){
     if(ok){
       el.remove();
       document.getElementById('app').style.display = '';
-      initRealtimeSync();
+      // isGuestMode는 fbOnAuthChange 콜백에서 갱신됨
     } else {
       err.style.display = 'block';
       btn.textContent = '입장';
@@ -1340,6 +1367,24 @@ function showLoginScreen(){
   document.getElementById('loginBtn').addEventListener('click', submit);
   document.getElementById('loginPw').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') submit(); });
   document.getElementById('loginPw').focus();
+
+  document.getElementById('guestBtn').addEventListener('click', async ()=>{
+    const gbtn = document.getElementById('guestBtn');
+    const gerr = document.getElementById('guestErr');
+    gerr.style.display = 'none';
+    gbtn.textContent = '접속 중...';
+    gbtn.disabled = true;
+    const ok = await window.fbGuestLogin();
+    if(ok){
+      el.remove();
+      document.getElementById('app').style.display = '';
+      // isGuestMode는 fbOnAuthChange 콜백에서 갱신됨
+    } else {
+      gerr.style.display = 'block';
+      gbtn.textContent = '게스트로 둘러보기 (조회 전용)';
+      gbtn.disabled = false;
+    }
+  });
 }
 
 (async function init(){
@@ -1349,13 +1394,16 @@ function showLoginScreen(){
     showSetupNeeded();
     return;
   }
-  window.fbOnAuthChange((isLoggedIn)=>{
+  window.fbOnAuthChange((isLoggedIn, isAnonymous)=>{
     if(isLoggedIn){
+      isGuestMode = !!isAnonymous;
       const existingLogin = document.getElementById('loginScreen');
       if(existingLogin) existingLogin.remove();
       document.getElementById('app').style.display = '';
+      applyGuestModeUI();
       initRealtimeSync();
     } else {
+      isGuestMode = false;
       showLoginScreen();
     }
   });
