@@ -17,10 +17,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getAuth, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-  // 팀 공용 로그인용 내부 계정 이메일 (실제 메일함 아님, 로그인 ID로만 사용)
   const TEAM_EMAIL = "fmek@korea.com";
 
   const firebaseConfig = {
@@ -117,9 +116,31 @@
         }
       };
 
-      window.fbOnAuthChange = function(callback){
-        onAuthStateChanged(auth, (user) => callback(!!user));
+      window.fbGuestLogin = async function(){
+        try{
+          await signInAnonymously(auth);
+          return true;
+        }catch(e){
+          console.error('Guest login error:', e);
+          return false;
+        }
       };
+
+      window.fbOnAuthChange = function(callback){
+        onAuthStateChanged(auth, (user) => callback(!!user, user ? !!user.isAnonymous : false));
+      };
+
+      window.fbLogout = async function(){
+        try{
+          await signOut(auth);
+          return true;
+        }catch(e){
+          console.error('Logout error:', e);
+          return false;
+        }
+      };
+
+      window.fbArrayUnion = arrayUnion;
 
       window.__firebaseReady = true;
     }catch(e){
@@ -170,6 +191,11 @@
     font-size:20px; margin:0; text-transform:uppercase;
   }
   .subtitle{ font-size:12px; color:#B9C7D4; margin-top:2px; font-weight:500; }
+  .logout-btn{
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#DCE5EC;
+    font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:8px; cursor:pointer; white-space:nowrap;
+  }
+  .logout-btn:hover{ background:rgba(255,255,255,.18); }
   .stats-row{ display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
   .stat-chip{
     display:flex; align-items:center; gap:5px;
@@ -209,6 +235,24 @@
     transition:background .15s;
   }
   .tab.active{ background:#fff; color:var(--steel-dark); }
+
+  .sort-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; }
+  .sort-row select{
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#DCE5EC;
+    border-radius:8px; padding:6px 8px; font-size:11.5px; font-weight:600;
+  }
+  .sort-row select option{ color:#1B2430; }
+  .print-btn{
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#DCE5EC;
+    border-radius:8px; padding:6px 10px; font-size:11.5px; font-weight:600; cursor:pointer; white-space:nowrap;
+  }
+
+  .elapsed-badge{
+    display:inline-block; font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:20px; margin-left:6px;
+  }
+  .elapsed-badge.warn1{ background:#FEF3C7; color:#92610A; }
+  .elapsed-badge.warn2{ background:#FDE3CB; color:#9A4A0A; }
+  .elapsed-badge.warn3{ background:#FBD8D3; color:var(--danger); }
 
   .list{ padding:16px 14px 0; display:flex; flex-direction:column; gap:10px; }
   .action-bar{ margin:14px 14px 0; display:flex; flex-direction:column; gap:8px; }
@@ -287,6 +331,22 @@
   .btn-test:hover{ background:#173FAE; }
   .btn-del{ background:none; color:var(--ink-muted); border:1px solid var(--line); }
   .btn-del:hover{ color:var(--danger); border-color:var(--danger); }
+  .btn-history{ background:none; color:var(--steel); border:1px solid var(--line); }
+  .btn-history:hover{ background:#EAF0F5; border-color:var(--steel); }
+
+  .timeline{ position:relative; padding-left:24px; margin:14px 0 6px; }
+  .timeline::before{ content:''; position:absolute; left:5px; top:4px; bottom:4px; width:2px; background:var(--line); }
+  .tl-item{ position:relative; padding-bottom:20px; }
+  .tl-item:last-child{ padding-bottom:0; }
+  .tl-dot{ position:absolute; left:-24px; top:2px; width:13px; height:13px; border-radius:50%; background:var(--ink-muted); border:2px solid #fff; box-shadow:0 0 0 2px var(--line); }
+  .tl-dot.testing{ background:var(--blue); box-shadow:0 0 0 2px #C7D8FC; }
+  .tl-dot.blocked{ background:var(--amber); box-shadow:0 0 0 2px #F3C89A; }
+  .tl-dot.released{ background:var(--green); box-shadow:0 0 0 2px #B7E3C9; }
+  .tl-top{ display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .tl-date{ font-size:11.5px; color:var(--ink-muted); font-family:'JetBrains Mono',monospace; }
+  .tl-by{ font-size:12.5px; font-weight:700; margin-top:5px; color:var(--ink); }
+  .tl-legacy{ font-size:10.5px; color:var(--ink-muted); font-weight:500; }
+  .timeline-empty{ text-align:center; padding:24px; color:var(--ink-muted); font-size:13px; }
 
   .fab{
     position:fixed; right:20px; bottom:20px; z-index:30;
@@ -408,6 +468,7 @@
         <h1>블락배치 조회·기록기</h1>
         <div class="subtitle" id="subtitle">팀 공용 · 실시간 동기화 (Firebase)</div>
       </div>
+      <button class="logout-btn" id="logoutBtn">로그아웃</button>
     </div>
     <div class="stats-row">
       <div class="stat-chip c-testing">시험검사중 <span class="n" id="testingCount">-</span></div>
@@ -425,6 +486,14 @@
       <div class="tab" data-filter="testing">시험검사중</div>
       <div class="tab" data-filter="blocked">블락중</div>
       <div class="tab" data-filter="released">해제됨</div>
+    </div>
+    <div class="sort-row">
+      <select id="sortSelect">
+        <option value="recent">최신 등록순</option>
+        <option value="lot">LOT명순</option>
+        <option value="elapsed">경과일 오래된순</option>
+      </select>
+      <button class="print-btn" id="openPrintView">🖨 인쇄용 요약</button>
     </div>
   </header>
 
@@ -448,8 +517,10 @@ let currentFilter = 'all';
 let searchTerm = '';
 let multiLotTokens = [];
 let myName = '';
+let isGuestMode = false;
+let sortOption = 'recent';
 
-const REASONS = ['품질이상(시험검사 부적합)','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
+const REASONS = ['신규배치 시험검사(출하승인 대기)','품질이상','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
 
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -466,6 +537,34 @@ function fmtDate(iso){
   const d = new Date(iso);
   const pad = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function elapsedDays(iso){
+  if(!iso) return 0;
+  const ms = Date.now() - new Date(iso).getTime();
+  return Math.max(0, Math.floor(ms / 86400000));
+}
+
+function elapsedBasisIso(r){
+  if(r.status === 'testing') return r.testRequestedAt || r.registeredAt;
+  if(r.status === 'blocked') return r.testFailAt || r.registeredAt;
+  return r.registeredAt;
+}
+
+function elapsedBadgeHtml(r){
+  const days = elapsedDays(elapsedBasisIso(r));
+  if(r.status === 'testing'){
+    if(days > 45) return `<span class="elapsed-badge warn3">🔴 ${days}일 경과 (장기지연)</span>`;
+    if(days > 30) return `<span class="elapsed-badge warn2">🟡 ${days}일 경과 (지연)</span>`;
+    return '';
+  }
+  if(r.status === 'blocked'){
+    if(days > 365) return `<span class="elapsed-badge warn3">🔴 ${days}일 경과 (초장기)</span>`;
+    if(days > 180) return `<span class="elapsed-badge warn2">🟠 ${days}일 경과 (장기)</span>`;
+    if(days > 30) return `<span class="elapsed-badge warn1">🟡 ${days}일 경과</span>`;
+    return '';
+  }
+  return '';
 }
 
 function loadMyName(){
@@ -514,6 +613,17 @@ function initRealtimeSync(){
     const q = searchTerm.trim().toLowerCase();
     list = list.filter(r => r.lot.toLowerCase().includes(q) || r.product.toLowerCase().includes(q) || (r.code||'').toLowerCase().includes(q));
   }
+
+  if(sortOption === 'lot'){
+    return list.sort((a,b) => a.lot.localeCompare(b.lot, 'ko'));
+  }
+  if(sortOption === 'elapsed'){
+    return list.sort((a,b) => {
+      const da = new Date(elapsedBasisIso(a) || a.registeredAt);
+      const db = new Date(elapsedBasisIso(b) || b.registeredAt);
+      return da - db;
+    });
+  }
   return list.sort((a,b) => new Date(b.registeredAt) - new Date(a.registeredAt));
 }
 
@@ -532,11 +642,11 @@ function render(){
   let rows = '';
   if(filteredTestingList.length > 0){
     const label = isNarrowed ? `🔵 검색·필터된 시험검사중 ${filteredTestingList.length}건` : `🔵 시험검사중 ${filteredTestingList.length}건`;
-    rows += `<div class="action-row"><span>${label}</span><button onclick="openBulkTestResult()">일괄 검사결과 처리</button></div>`;
+    rows += `<div class="action-row"><span>${label}</span>${isGuestMode ? '' : `<button onclick="openBulkTestResult()">일괄 검사결과 처리</button>`}</div>`;
   }
   if(filteredBlockedList.length > 0){
     const label = isNarrowed ? `🟠 검색·필터된 블락중 ${filteredBlockedList.length}건` : `🟠 블락중 ${filteredBlockedList.length}건`;
-    rows += `<div class="action-row amber"><span>${label}</span><button onclick="openBulkRelease()">일괄 해제 처리</button></div>`;
+    rows += `<div class="action-row amber"><span>${label}</span>${isGuestMode ? '' : `<button onclick="openBulkRelease()">일괄 해제 처리</button>`}</div>`;
   }
   if(rows){
     bar.style.display = 'flex';
@@ -569,11 +679,13 @@ function render(){
           </div>
           <span class="badge ${status}">${STATUS_LABEL[status]}</span>
         </div>
+        ${elapsedBadgeHtml(r)}
         <span class="reason-tag">${escapeHtml(r.reason)}</span>
         ${r.memo ? `<div class="memo">${escapeHtml(r.memo)}</div>` : ''}
         <div class="meta-row">
           <span>등록 <b>${escapeHtml(r.registeredBy)}</b></span>
           <span>${fmtDate(r.registeredAt)}</span>
+          ${status === 'testing' ? `<span>의뢰일 <b>${fmtDate(elapsedBasisIso(r)).split(' ')[0]}</b>${r.testRequestedAt ? '' : ' (등록일 기준)'}</span>` : ''}
         </div>
         ${status === 'released' ? `
         <div class="release-info">
@@ -585,11 +697,17 @@ function render(){
           <b>부적합 처리</b> · ${escapeHtml(r.testFailBy)} · ${r.testFailAt ? fmtDate(r.testFailAt) : ''}
           ${r.testFailMemo ? `<div class="memo" style="margin-top:6px;">${escapeHtml(r.testFailMemo)}</div>` : ''}
         </div>` : ''}
+        ${isGuestMode ? `
+        <div class="card-actions">
+          <button class="btn-sm btn-history" onclick="openHistory('${r.id}')">이력</button>
+        </div>` : `
         <div class="card-actions">
           ${status === 'testing' ? `<button class="btn-sm btn-test" onclick="openTestResult('${r.id}')">검사 결과 입력</button>` : ''}
           ${status === 'blocked' ? `<button class="btn-sm btn-release" onclick="openRelease('${r.id}')">해제 처리</button>` : ''}
+          <button class="btn-sm" style="background:#EAF0F5; color:var(--steel-dark);" onclick="openEdit('${r.id}')">수정</button>
+          <button class="btn-sm btn-history" onclick="openHistory('${r.id}')">이력</button>
           <button class="btn-sm btn-del" onclick="deleteRecord('${r.id}')">삭제</button>
-        </div>
+        </div>`}
       </div>
     </div>`;
   }).join('');
@@ -599,6 +717,59 @@ function escapeHtml(s){
   const d = document.createElement('div');
   d.textContent = s || '';
   return d.innerHTML;
+}
+
+function makeHistoryEntry(status, by, memo, at){
+  return { status, by: by || '', memo: memo || '', at: at || new Date().toISOString() };
+}
+
+// history 필드가 없는 옛날 레코드는 등록/부적합/해제 시각을 조합해 이력을 합성해서 보여줌 ("(추정)" 표시)
+function getRecordHistory(rec){
+  if(Array.isArray(rec.history) && rec.history.length > 0){
+    return [...rec.history].sort((a,b) => new Date(a.at) - new Date(b.at));
+  }
+  const list = [];
+  const firstStatus = rec.testFailAt ? 'testing' : (rec.status === 'testing' ? 'testing' : (rec.status === 'blocked' ? 'blocked' : (rec.releasedAt ? 'blocked' : 'testing')));
+  list.push({ status: firstStatus, by: rec.registeredBy, memo: rec.reason || '', at: rec.registeredAt, _legacy: true });
+  if(rec.testFailAt){
+    list.push({ status: 'blocked', by: rec.testFailBy, memo: rec.testFailMemo || '', at: rec.testFailAt, _legacy: true });
+  }
+  if(rec.releasedAt){
+    list.push({ status: 'released', by: rec.releasedBy, memo: rec.releaseMemo || '', at: rec.releasedAt, _legacy: true });
+  }
+  return list.sort((a,b) => new Date(a.at) - new Date(b.at));
+}
+
+function openHistory(id){
+  closeOverlay('histOverlay');
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+  const hist = getRecordHistory(rec);
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'histOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>LOT 이력 · ${escapeHtml(rec.lot)}</h2>
+      ${hist.length === 0 ? '<div class="timeline-empty">이력이 없어요</div>' : `
+      <div class="timeline">
+        ${hist.map(h => `
+          <div class="tl-item">
+            <div class="tl-dot ${h.status}"></div>
+            <div class="tl-top">
+              <span class="badge ${h.status}">${STATUS_LABEL[h.status] || h.status}</span>
+              <span class="tl-date">${h.at ? fmtDate(h.at) : ''}</span>
+            </div>
+            <div class="tl-by">${escapeHtml(h.by)}${h._legacy ? ' <span class="tl-legacy">(추정)</span>' : ''}</div>
+            ${h.memo ? `<div class="memo" style="margin-top:6px;">${escapeHtml(h.memo)}</div>` : ''}
+          </div>`).join('')}
+      </div>`}
+      <div class="modal-actions">
+        <button class="btn-cancel" style="flex:1;" onclick="closeOverlay('histOverlay')">닫기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('histOverlay'); });
 }
 
 function updateMultiChip(){
@@ -627,6 +798,7 @@ function clearMultiSearch(){
 }
 
 function openMultiSearchModal(){
+  closeOverlay('multiSearchOverlay');
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
   overlay.id = 'multiSearchOverlay';
@@ -668,6 +840,7 @@ function applyMultiSearch(){
 let addStatus = 'blocked';
 
 function openAddModal(){
+  closeOverlay('addOverlay');
   addStatus = 'blocked';
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
@@ -685,6 +858,11 @@ function openAddModal(){
       <div class="field"><label id="f_reason_label">블락 사유 *</label>
         <select id="f_reason">${REASONS.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
       </div>
+      <div class="field" id="f_testDateWrap" style="display:none;">
+        <label>검사의뢰일 (선택)</label>
+        <input id="f_testRequestedAt" type="date">
+        <div class="hint">비워두면 등록일자로 자동 설정돼요. 달력 아이콘으로 선택하거나 직접 입력(연-월-일)할 수 있어요.</div>
+      </div>
       <div class="field"><label>상세 메모</label><textarea id="f_memo" placeholder="상세 내용 (선택)"></textarea></div>
       <div class="field"><label>등록자 *</label><input id="f_by" type="text" placeholder="이름" value="${escapeHtml(myName)}"></div>
       <div class="err" id="f_err">필수 항목을 입력해주세요</div>
@@ -695,6 +873,7 @@ function openAddModal(){
     </div>`;
   document.body.appendChild(overlay);
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('addOverlay'); });
+  overlay.querySelector('#f_reason').value = '품질이상';
 
   overlay.querySelectorAll('#addSeg .seg-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -702,10 +881,16 @@ function openAddModal(){
       btn.classList.add('active');
       addStatus = btn.dataset.v;
       const isTesting = addStatus === 'testing';
-      document.getElementById('f_reason_label').textContent = isTesting ? '검사 사유' : '블락 사유 *';
-      document.getElementById('addSubmitBtn').textContent = isTesting ? '시험검사중으로 등록' : '블락 등록';
+      overlay.querySelector('#f_reason_label').textContent = isTesting ? '검사 사유' : '블락 사유 *';
+      overlay.querySelector('#addSubmitBtn').textContent = isTesting ? '시험검사중으로 등록' : '블락 등록';
+      overlay.querySelector('#f_testDateWrap').style.display = isTesting ? 'block' : 'none';
+      const reasonSelect = overlay.querySelector('#f_reason');
+      if(reasonSelect.dataset.userTouched !== 'true'){
+        reasonSelect.value = isTesting ? '신규배치 시험검사(출하승인 대기)' : '품질이상';
+      }
     });
   });
+  overlay.querySelector('#f_reason').addEventListener('change', (e)=>{ e.target.dataset.userTouched = 'true'; });
 }
 
 async function submitAdd(){
@@ -715,20 +900,41 @@ async function submitAdd(){
   const reason = document.getElementById('f_reason').value;
   const memo = document.getElementById('f_memo').value.trim();
   const by = document.getElementById('f_by').value.trim();
+  const testRequestedAtRaw = document.getElementById('f_testRequestedAt').value; // YYYY-MM-DD or ''
 
   if(!lot || !product || !by){
     document.getElementById('f_err').style.display = 'block';
     return;
   }
 
+  const data = { code, lot, product, reason, memo, by, testRequestedAtRaw };
+  const dup = records.find(r => r.lot.trim().toLowerCase() === lot.toLowerCase());
+  if(dup){
+    showAppConfirm(
+      `이미 등록된 LOT이에요 (상태: ${STATUS_LABEL[dup.status] || dup.status}, 등록자: ${dup.registeredBy}).\n그래도 새로 등록할까요?`,
+      '그래도 등록',
+      ()=> doAddRecord(data)
+    );
+    return;
+  }
+  doAddRecord(data);
+}
+
+async function doAddRecord(data){
+  const { code, lot, product, reason, memo, by, testRequestedAtRaw } = data;
+  const testRequestedAt = (addStatus === 'testing' && testRequestedAtRaw) ? new Date(testRequestedAtRaw + 'T00:00:00').toISOString() : null;
+  const nowIso = new Date().toISOString();
+
   const rec = {
     id: genId(),
     lot, product, code, reason, memo,
     registeredBy: by,
-    registeredAt: new Date().toISOString(),
+    registeredAt: nowIso,
     status: addStatus,
+    testRequestedAt,
     releasedBy: null, releasedAt: null, releaseMemo: null,
-    testFailBy: null, testFailAt: null, testFailMemo: null
+    testFailBy: null, testFailAt: null, testFailMemo: null,
+    history: [makeHistoryEntry(addStatus, by, reason || memo, nowIso)]
   };
   records.push(rec);
   render();
@@ -738,9 +944,89 @@ async function submitAdd(){
   showToast(ok ? (addStatus === 'testing' ? '시험검사중으로 등록 완료' : '블락 등록 완료') : '등록됐지만 저장에 실패했어요');
 }
 
+function openEdit(id){
+  closeOverlay('editOverlay');
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'editOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>기록 수정</h2>
+      <div class="field"><label>제품코드</label><input id="e_code" type="text" value="${escapeHtml(rec.code || '')}" placeholder="예: PC-1234 (선택)"></div>
+      <div class="field"><label>LOT / 배치번호 *</label><input id="e_lot" type="text" value="${escapeHtml(rec.lot)}"></div>
+      <div class="field"><label>제품명 *</label><input id="e_product" type="text" value="${escapeHtml(rec.product)}"></div>
+      <div class="field"><label>사유</label>
+        <select id="e_reason">${((rec.reason && !REASONS.includes(rec.reason)) ? [rec.reason, ...REASONS] : REASONS).map(r=>`<option value="${escapeHtml(r)}" ${r===rec.reason?'selected':''}>${escapeHtml(r)}${!REASONS.includes(r) ? ' (기존 값)' : ''}</option>`).join('')}</select>
+      </div>
+      ${rec.status === 'testing' ? `
+      <div class="field">
+        <label>검사의뢰일 (선택)</label>
+        <input id="e_testRequestedAt" type="date" value="${rec.testRequestedAt ? rec.testRequestedAt.slice(0,10) : ''}">
+        <div class="hint">비워두면 등록일자로 자동 설정돼요.</div>
+      </div>` : ''}
+      <div class="field"><label>상세 메모</label><textarea id="e_memo">${escapeHtml(rec.memo || '')}</textarea></div>
+      <div class="hint">상태(시험검사중·블락중·해제됨) 변경은 각 카드의 처리 버튼으로 해주세요. 여기선 정보 수정만 가능해요.</div>
+      <div class="err" id="e_err">LOT과 제품명은 필수예요</div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('editOverlay')">취소</button>
+        <button class="btn-submit" onclick="submitEdit('${id}')">수정 저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('editOverlay'); });
+}
+
+async function submitEdit(id){
+  const code = document.getElementById('e_code').value.trim();
+  const lot = document.getElementById('e_lot').value.trim();
+  const product = document.getElementById('e_product').value.trim();
+  const reason = document.getElementById('e_reason').value;
+  const memo = document.getElementById('e_memo').value.trim();
+
+  if(!lot || !product){
+    document.getElementById('e_err').style.display = 'block';
+    return;
+  }
+
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+
+  const lotChanged = lot.toLowerCase() !== rec.lot.trim().toLowerCase();
+  const patch = { code, lot, product, reason, memo };
+  if(rec.status === 'testing'){
+    const testDateEl = document.getElementById('e_testRequestedAt');
+    const raw = testDateEl ? testDateEl.value : '';
+    patch.testRequestedAt = raw ? new Date(raw + 'T00:00:00').toISOString() : null;
+  }
+
+  if(lotChanged){
+    const dup = records.find(r => r.id !== id && r.lot.trim().toLowerCase() === lot.toLowerCase());
+    if(dup){
+      showAppConfirm(
+        `이미 등록된 LOT과 겹쳐요 (상태: ${STATUS_LABEL[dup.status] || dup.status}).\n그래도 저장할까요?`,
+        '그래도 저장',
+        ()=> doSaveEdit(id, rec, patch)
+      );
+      return;
+    }
+  }
+  doSaveEdit(id, rec, patch);
+}
+
+async function doSaveEdit(id, rec, patch){
+  Object.assign(rec, patch);
+  render();
+  closeOverlay('editOverlay');
+  const ok = await window.fbUpdateRecord(id, patch);
+  showToast(ok ? '수정 완료' : '수정됐지만 저장에 실패했어요');
+}
+
 let testResultChoice = 'pass';
 
 function openTestResult(id){
+  closeOverlay('testOverlay');
   const rec = records.find(r => r.id === id);
   if(!rec) return;
   testResultChoice = 'pass';
@@ -771,7 +1057,7 @@ function openTestResult(id){
       overlay.querySelectorAll('#testSeg .seg-btn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       testResultChoice = btn.dataset.v;
-      const submitBtn = document.getElementById('testSubmitBtn');
+      const submitBtn = overlay.querySelector('#testSubmitBtn');
       submitBtn.textContent = testResultChoice === 'pass' ? '적합 처리' : '부적합 처리';
       submitBtn.className = testResultChoice === 'pass' ? 'btn-submit' : 'btn-submit danger';
     });
@@ -793,13 +1079,17 @@ async function submitTestResult(id){
       rec.releasedBy = by;
       rec.releasedAt = new Date().toISOString();
       rec.releaseMemo = memo || '시험검사 적합';
-      patch = { status: rec.status, releasedBy: rec.releasedBy, releasedAt: rec.releasedAt, releaseMemo: rec.releaseMemo };
+      const entry = makeHistoryEntry('released', by, rec.releaseMemo, rec.releasedAt);
+      rec.history = [...(rec.history || []), entry];
+      patch = { status: rec.status, releasedBy: rec.releasedBy, releasedAt: rec.releasedAt, releaseMemo: rec.releaseMemo, history: window.fbArrayUnion(entry) };
     } else {
       rec.status = 'blocked';
       rec.testFailBy = by;
       rec.testFailAt = new Date().toISOString();
       rec.testFailMemo = memo || '시험검사 부적합';
-      patch = { status: rec.status, testFailBy: rec.testFailBy, testFailAt: rec.testFailAt, testFailMemo: rec.testFailMemo };
+      const entry = makeHistoryEntry('blocked', by, rec.testFailMemo, rec.testFailAt);
+      rec.history = [...(rec.history || []), entry];
+      patch = { status: rec.status, testFailBy: rec.testFailBy, testFailAt: rec.testFailAt, testFailMemo: rec.testFailMemo, history: window.fbArrayUnion(entry) };
     }
   }
   render();
@@ -814,6 +1104,7 @@ let bulkTestChoice = 'pass';
 function openBulkTestResult(){
   const items = getFiltered().filter(r => r.status === 'testing').sort((a,b)=> new Date(b.registeredAt) - new Date(a.registeredAt));
   if(items.length === 0){ showToast('시험검사중인 항목이 없어요'); return; }
+  closeOverlay('bulkTestOverlay');
   bulkTestChoice = 'pass';
 
   const overlay = document.createElement('div');
@@ -857,7 +1148,7 @@ function openBulkTestResult(){
       overlay.querySelectorAll('#bulkTestSeg .seg-btn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       bulkTestChoice = btn.dataset.v;
-      const submitBtn = document.getElementById('bulkTestSubmitBtn');
+      const submitBtn = overlay.querySelector('#bulkTestSubmitBtn');
       submitBtn.textContent = bulkTestChoice === 'pass' ? '선택 항목 적합 처리' : '선택 항목 부적합 처리';
       submitBtn.className = bulkTestChoice === 'pass' ? 'btn-submit' : 'btn-submit danger';
     });
@@ -875,24 +1166,27 @@ async function submitBulkTestResult(){
   }
 
   const now = new Date().toISOString();
+  const bulkMemo = bulkTestChoice === 'pass' ? (memo || '시험검사 적합(일괄)') : (memo || '시험검사 부적합(일괄)');
+  const bulkEntry = makeHistoryEntry(bulkTestChoice === 'pass' ? 'released' : 'blocked', by, bulkMemo, now);
   checkedIds.forEach(id => {
     const rec = records.find(r => r.id === id);
     if(!rec) return;
+    rec.history = [...(rec.history || []), bulkEntry];
     if(bulkTestChoice === 'pass'){
       rec.status = 'released';
       rec.releasedBy = by;
       rec.releasedAt = now;
-      rec.releaseMemo = memo || '시험검사 적합(일괄)';
+      rec.releaseMemo = bulkMemo;
     } else {
       rec.status = 'blocked';
       rec.testFailBy = by;
       rec.testFailAt = now;
-      rec.testFailMemo = memo || '시험검사 부적합(일괄)';
+      rec.testFailMemo = bulkMemo;
     }
   });
   const patch = bulkTestChoice === 'pass'
-    ? { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo || '시험검사 적합(일괄)' }
-    : { status: 'blocked', testFailBy: by, testFailAt: now, testFailMemo: memo || '시험검사 부적합(일괄)' };
+    ? { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: bulkMemo, history: window.fbArrayUnion(bulkEntry) }
+    : { status: 'blocked', testFailBy: by, testFailAt: now, testFailMemo: bulkMemo, history: window.fbArrayUnion(bulkEntry) };
   render();
   closeOverlay('bulkTestOverlay');
   await saveMyName(by);
@@ -903,6 +1197,7 @@ async function submitBulkTestResult(){
 function openBulkRelease(){
   const items = getFiltered().filter(r => r.status === 'blocked').sort((a,b)=> new Date(b.registeredAt) - new Date(a.registeredAt));
   if(items.length === 0){ showToast('블락중인 항목이 없어요'); return; }
+  closeOverlay('bulkReleaseOverlay');
 
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
@@ -949,15 +1244,18 @@ async function submitBulkRelease(){
   }
 
   const now = new Date().toISOString();
+  const releaseMemoText = memo || '일괄 해제';
+  const bulkEntry = makeHistoryEntry('released', by, releaseMemoText, now);
   checkedIds.forEach(id => {
     const rec = records.find(r => r.id === id);
     if(!rec) return;
+    rec.history = [...(rec.history || []), bulkEntry];
     rec.status = 'released';
     rec.releasedBy = by;
     rec.releasedAt = now;
-    rec.releaseMemo = memo || '일괄 해제';
+    rec.releaseMemo = releaseMemoText;
   });
-  const patch = { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo || '일괄 해제' };
+  const patch = { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: releaseMemoText, history: window.fbArrayUnion(bulkEntry) };
   render();
   closeOverlay('bulkReleaseOverlay');
   await saveMyName(by);
@@ -966,6 +1264,7 @@ async function submitBulkRelease(){
 }
 
 function openRelease(id){
+  closeOverlay('relOverlay');
   const rec = records.find(r => r.id === id);
   if(!rec) return;
   const overlay = document.createElement('div');
@@ -996,36 +1295,102 @@ async function submitRelease(id){
   }
   const rec = records.find(r => r.id === id);
   const now = new Date().toISOString();
+  const entry = makeHistoryEntry('released', by, memo, now);
   if(rec){
     rec.status = 'released';
     rec.releasedBy = by;
     rec.releasedAt = now;
     rec.releaseMemo = memo;
+    rec.history = [...(rec.history || []), entry];
   }
   render();
   closeOverlay('relOverlay');
   await saveMyName(by);
-  const ok = await window.fbUpdateRecord(id, { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo });
+  const ok = await window.fbUpdateRecord(id, { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo, history: window.fbArrayUnion(entry) });
   showToast(ok ? '해제 처리 완료' : '처리됐지만 저장에 실패했어요');
 }
 
-async function deleteRecord(id){
-  if(!confirm('이 기록을 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
+function showAppConfirm(message, confirmLabel, onConfirm){
+  closeOverlay('appConfirmOverlay');
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'appConfirmOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>확인</h2>
+      <p style="font-size:13.5px; color:var(--ink); line-height:1.6; white-space:pre-line;">${escapeHtml(message)}</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="appConfirmCancel">취소</button>
+        <button class="btn-submit" id="appConfirmOk">${escapeHtml(confirmLabel || '확인')}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const cleanup = ()=> closeOverlay('appConfirmOverlay');
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) cleanup(); });
+  overlay.querySelector('#appConfirmCancel').addEventListener('click', cleanup);
+  overlay.querySelector('#appConfirmOk').addEventListener('click', ()=>{ cleanup(); onConfirm(); });
+}
+
+function openDeleteConfirm(id){
+  closeOverlay('delConfirmOverlay');
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'delConfirmOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>기록 삭제</h2>
+      <div class="field">
+        <label>LOT</label>
+        <input type="text" value="${escapeHtml(rec.lot)}" disabled>
+      </div>
+      <p style="font-size:13px; color:var(--danger); margin:0 0 8px;">이 기록을 삭제할까요? 삭제하면 되돌릴 수 없어요.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('delConfirmOverlay')">취소</button>
+        <button class="btn-submit danger" onclick="confirmDeleteRecord('${id}')">삭제</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('delConfirmOverlay'); });
+}
+
+async function confirmDeleteRecord(id){
+  closeOverlay('delConfirmOverlay');
   records = records.filter(r => r.id !== id);
   render();
   const ok = await window.fbDeleteRecord(id);
   showToast(ok ? '삭제 완료' : '삭제됐지만 저장에 실패했어요');
 }
 
+async function deleteRecord(id){
+  openDeleteConfirm(id);
+}
+
+function applyGuestModeUI(){
+  const addBtn = document.getElementById('openAdd');
+  const bulkBtn = document.getElementById('openBulk');
+  const subtitle = document.getElementById('subtitle');
+  if(isGuestMode){
+    if(addBtn) addBtn.style.display = 'none';
+    if(bulkBtn) bulkBtn.style.display = 'none';
+    if(subtitle) subtitle.textContent = '게스트 모드 · 조회 전용 (편집 불가)';
+  } else {
+    if(addBtn) addBtn.style.display = '';
+    if(bulkBtn) bulkBtn.style.display = '';
+    if(subtitle) subtitle.textContent = '팀 공용 · 실시간 동기화 (Firebase)';
+  }
+}
+
 function closeOverlay(id){
-  const el = document.getElementById(id);
-  if(el) el.remove();
+  document.querySelectorAll('#' + id).forEach(el => el.remove());
 }
 
   let bulkRows = []; // {code, lot, product, reason, memo, valid, include}
 let bulkStatus = 'blocked';
 
 function openBulkModal(){
+  closeOverlay('bulkOverlay');
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
   overlay.id = 'bulkOverlay';
@@ -1195,14 +1560,30 @@ function normalizeRow(code, lot, product, reason, memo){
   return { code, lot, product, reason, memo, valid, include: valid };
 }
 
+function findDupInfo(lot){
+  if(!lot) return null;
+  const existing = records.find(r => r.lot.trim().toLowerCase() === lot.toLowerCase());
+  if(existing) return `기존 등록됨(${STATUS_LABEL[existing.status] || existing.status})`;
+  return null;
+}
+
 function renderPreview(){
   const validCount = bulkRows.filter(r=>r.valid).length;
+  const seen = {};
+  bulkRows.forEach(r=>{
+    const key = r.lot.toLowerCase();
+    r._existingDup = r.valid ? findDupInfo(r.lot) : null;
+    r._withinDup = r.valid && key && seen[key];
+    if(r.valid && key) seen[key] = true;
+  });
+  const dupCount = bulkRows.filter(r => r._existingDup || r._withinDup).length;
+
   document.getElementById('previewSummary').innerHTML =
-    `총 <b>${bulkRows.length}</b>행 인식 · 유효 <b>${validCount}</b>건 ${bulkRows.length - validCount > 0 ? `· LOT/제품명 누락 ${bulkRows.length - validCount}건은 제외됐어요` : ''}`;
+    `총 <b>${bulkRows.length}</b>행 인식 · 유효 <b>${validCount}</b>건 ${bulkRows.length - validCount > 0 ? `· LOT/제품명 누락 ${bulkRows.length - validCount}건은 제외됐어요` : ''}${dupCount > 0 ? ` · <span style="color:var(--danger);">중복 LOT ${dupCount}건 발견 (체크 확인해주세요)</span>` : ''}`;
 
   const table = document.getElementById('previewTable');
   table.innerHTML = `
-    <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유</th></tr></thead>
+    <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유</th><th>중복</th></tr></thead>
     <tbody>
       ${bulkRows.map((r,i)=>`
         <tr class="${r.valid ? '' : 'invalid'}">
@@ -1211,6 +1592,7 @@ function renderPreview(){
           <td class="pv-lot">${escapeHtml(r.lot) || '-'}</td>
           <td>${escapeHtml(r.product) || '-'}</td>
           <td>${escapeHtml(r.reason)}</td>
+          <td>${r._existingDup ? `<span style="color:var(--danger); font-weight:600;">⚠ ${r._existingDup}</span>` : (r._withinDup ? `<span style="color:var(--amber); font-weight:600;">⚠ 목록 내 중복</span>` : '')}</td>
         </tr>`).join('')}
     </tbody>`;
 }
@@ -1242,6 +1624,57 @@ async function submitBulk(){
   await saveMyName(by);
   const ok = await window.fbBulkAdd(newRecords);
   showToast(ok ? `${toAdd.length}건 일괄 등록 완료` : '등록됐지만 저장에 실패했어요');
+}
+
+function openPrintView(){
+  const list = getFiltered();
+  if(list.length === 0){ showToast('인쇄할 항목이 없어요'); return; }
+
+  const filterLabel = { all:'전체', testing:'시험검사중', blocked:'블락중', released:'해제됨' }[currentFilter];
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const printedAt = `${now.getFullYear()}.${pad(now.getMonth()+1)}.${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const rowsHtml = list.map(r => {
+    const days = elapsedDays(elapsedBasisIso(r));
+    const showDays = (r.status === 'testing' || r.status === 'blocked') ? `${days}일` : '-';
+    return `<tr>
+      <td>${escapeHtml(r.code) || '-'}</td>
+      <td style="font-weight:700;">${escapeHtml(r.lot)}</td>
+      <td>${escapeHtml(r.product)}</td>
+      <td>${STATUS_LABEL[r.status] || r.status}</td>
+      <td>${escapeHtml(r.reason || '')}</td>
+      <td>${showDays}</td>
+      <td>${escapeHtml(r.registeredBy || '')}</td>
+      <td>${r.registeredAt ? fmtDate(r.registeredAt) : ''}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+    <title>블락배치 조회기록 - 인쇄용 요약</title>
+    <style>
+      body{ font-family:'Malgun Gothic',sans-serif; margin:24px; color:#1B2430; }
+      h1{ font-size:18px; margin:0 0 4px; }
+      .meta{ font-size:12px; color:#5B6672; margin-bottom:16px; }
+      table{ width:100%; border-collapse:collapse; font-size:12px; }
+      th, td{ border:1px solid #ccc; padding:6px 8px; text-align:left; }
+      th{ background:#EEF1F4; }
+      @media print{ button{ display:none; } }
+    </style></head><body>
+    <h1>블락배치 조회·기록 요약 (${filterLabel})</h1>
+    <div class="meta">출력일시: ${printedAt} · 총 ${list.length}건</div>
+    <button onclick="window.print()" style="margin-bottom:12px; padding:8px 14px;">인쇄하기</button>
+    <table>
+      <thead><tr><th>제품코드</th><th>LOT</th><th>제품명</th><th>상태</th><th>사유</th><th>경과일</th><th>등록자</th><th>등록일시</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    </body></html>`;
+
+  const win = window.open('', '_blank');
+  if(!win){ showToast('팝업이 차단됐어요 - 팝업 허용 후 다시 시도해주세요'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
 }
 
 function exportToExcel(){
@@ -1284,7 +1717,12 @@ document.getElementById('openAdd').addEventListener('click', openAddModal);
 document.getElementById('openBulk').addEventListener('click', openBulkModal);
 document.getElementById('openMultiSearch').addEventListener('click', openMultiSearchModal);
 document.getElementById('exportExcel').addEventListener('click', exportToExcel);
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  showAppConfirm('로그아웃 할까요?', '로그아웃', async ()=>{ await window.fbLogout(); });
+});
 document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; render(); });
+document.getElementById('sortSelect').addEventListener('change', (e)=>{ sortOption = e.target.value; render(); });
+document.getElementById('openPrintView').addEventListener('click', openPrintView);
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', ()=>{
     document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -1321,6 +1759,8 @@ function showLoginScreen(){
       <input class="login-input" id="loginPw" type="password" placeholder="비밀번호">
       <div class="login-err" id="loginErr">비밀번호가 틀렸어요. 다시 확인해주세요.</div>
       <button class="btn-submit" style="width:100%; margin-top:14px;" id="loginBtn">입장</button>
+      <button class="btn-cancel" style="width:100%; margin-top:10px;" id="guestBtn">게스트로 둘러보기 (조회 전용)</button>
+      <div class="login-err" id="guestErr">게스트 접속에 실패했어요. 잠시 후 다시 시도해주세요.</div>
     </div>`;
   document.body.appendChild(el);
 
@@ -1336,7 +1776,7 @@ function showLoginScreen(){
     if(ok){
       el.remove();
       document.getElementById('app').style.display = '';
-      initRealtimeSync();
+      // isGuestMode는 fbOnAuthChange 콜백에서 갱신됨
     } else {
       err.style.display = 'block';
       btn.textContent = '입장';
@@ -1346,6 +1786,24 @@ function showLoginScreen(){
   document.getElementById('loginBtn').addEventListener('click', submit);
   document.getElementById('loginPw').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') submit(); });
   document.getElementById('loginPw').focus();
+
+  document.getElementById('guestBtn').addEventListener('click', async ()=>{
+    const gbtn = document.getElementById('guestBtn');
+    const gerr = document.getElementById('guestErr');
+    gerr.style.display = 'none';
+    gbtn.textContent = '접속 중...';
+    gbtn.disabled = true;
+    const ok = await window.fbGuestLogin();
+    if(ok){
+      el.remove();
+      document.getElementById('app').style.display = '';
+      // isGuestMode는 fbOnAuthChange 콜백에서 갱신됨
+    } else {
+      gerr.style.display = 'block';
+      gbtn.textContent = '게스트로 둘러보기 (조회 전용)';
+      gbtn.disabled = false;
+    }
+  });
 }
 
 (async function init(){
@@ -1355,13 +1813,16 @@ function showLoginScreen(){
     showSetupNeeded();
     return;
   }
-  window.fbOnAuthChange((isLoggedIn)=>{
+  window.fbOnAuthChange((isLoggedIn, isAnonymous)=>{
     if(isLoggedIn){
+      isGuestMode = !!isAnonymous;
       const existingLogin = document.getElementById('loginScreen');
       if(existingLogin) existingLogin.remove();
       document.getElementById('app').style.display = '';
+      applyGuestModeUI();
       initRealtimeSync();
     } else {
+      isGuestMode = false;
       showLoginScreen();
     }
   });
