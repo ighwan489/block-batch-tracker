@@ -1,6 +1,6 @@
 {
-  "name": "블락배치 조회·기록기",
-  "short_name": "블락배치",
+  "name": "BatchMate",
+  "short_name": "BatchMate",
   "description": "FMEK 출하승인관리팀 블락배치 실시간 조회·기록 앱",
   "start_url": "/",
   "scope": "/",
