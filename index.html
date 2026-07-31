@@ -9,11 +9,11 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="블락배치">
+<meta name="apple-mobile-web-app-title" content="BatchMate">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -187,8 +187,8 @@
   }
   .header-top{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
   h1{
-    font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.02em;
-    font-size:20px; margin:0; text-transform:uppercase;
+    font-family:'Space Grotesk',sans-serif; font-weight:700; letter-spacing:.01em;
+    font-size:22px; margin:0;
   }
   .subtitle{ font-size:12px; color:#B9C7D4; margin-top:2px; font-weight:500; }
   .logout-btn{
@@ -465,8 +465,8 @@
   <header>
     <div class="header-top">
       <div>
-        <h1>블락배치 조회·기록기</h1>
-        <div class="subtitle" id="subtitle">팀 공용 · 실시간 동기화 (Firebase)</div>
+        <h1>BatchMate</h1>
+        <div class="subtitle" id="subtitle">의약품 시험검사 & Block Batch 통합관리</div>
       </div>
       <button class="logout-btn" id="logoutBtn">로그아웃</button>
     </div>
@@ -1374,11 +1374,11 @@ function applyGuestModeUI(){
   if(isGuestMode){
     if(addBtn) addBtn.style.display = 'none';
     if(bulkBtn) bulkBtn.style.display = 'none';
-    if(subtitle) subtitle.textContent = '게스트 모드 · 조회 전용 (편집 불가)';
+    if(subtitle) subtitle.textContent = '의약품 시험검사 & Block Batch 통합관리 (게스트)';
   } else {
     if(addBtn) addBtn.style.display = '';
     if(bulkBtn) bulkBtn.style.display = '';
-    if(subtitle) subtitle.textContent = '팀 공용 · 실시간 동기화 (Firebase)';
+    if(subtitle) subtitle.textContent = '의약품 시험검사 & Block Batch 통합관리';
   }
 }
 
