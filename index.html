@@ -235,6 +235,9 @@
     transition:background .15s;
   }
   .tab.active{ background:#fff; color:var(--steel-dark); }
+  .tab.active[data-filter="testing"]{ background:var(--blue); color:#fff; }
+  .tab.active[data-filter="blocked"]{ background:var(--amber); color:#fff; }
+  .tab.active[data-filter="released"]{ background:var(--green); color:#fff; }
 
   .sort-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; }
   .sort-row select{
@@ -295,12 +298,12 @@
   .product{ font-size:12.5px; color:var(--ink-muted); margin-top:2px; }
 
   .badge{
-    font-size:10.5px; font-weight:700; padding:4px 9px; border-radius:20px; white-space:nowrap;
-    letter-spacing:.02em;
+    font-size:10.5px; font-weight:700; padding:4px 10px 4px 7px; border-radius:20px; white-space:nowrap;
+    letter-spacing:.01em; display:inline-flex; align-items:center; gap:4px;
   }
-  .badge.blocked{ background:var(--amber-bg); color:var(--amber); }
-  .badge.released{ background:var(--green-bg); color:var(--green); }
-  .badge.testing{ background:var(--blue-bg); color:var(--blue); }
+  .badge.blocked{ background:var(--amber); color:#fff; }
+  .badge.released{ background:var(--green); color:#fff; }
+  .badge.testing{ background:var(--blue); color:#fff; }
 
   .meta-row{ display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:10px; font-size:12px; color:var(--ink-muted); }
   .meta-row b{ color:var(--ink); font-weight:600; }
@@ -482,16 +485,18 @@
     </div>
     <div class="multi-chip" id="multiChip" style="display:none;"></div>
     <div class="tabs" id="tabs">
-      <div class="tab active" data-filter="all">전체</div>
-      <div class="tab" data-filter="testing">시험검사중</div>
-      <div class="tab" data-filter="blocked">블락중</div>
-      <div class="tab" data-filter="released">해제됨</div>
+      <div class="tab active" data-filter="all">📋 전체</div>
+      <div class="tab" data-filter="testing">🔬 시험검사중</div>
+      <div class="tab" data-filter="blocked">⛔ 블락중</div>
+      <div class="tab" data-filter="released">✅ 해제됨</div>
     </div>
     <div class="sort-row">
       <select id="sortSelect">
         <option value="recent">최신 등록순</option>
         <option value="lot">LOT명순</option>
         <option value="elapsed">경과일 오래된순</option>
+        <option value="test-pass">시험검사 적합</option>
+        <option value="block-release">블락 해제</option>
       </select>
       <button class="print-btn" id="openPrintView">🖨 인쇄용 요약</button>
     </div>
@@ -614,6 +619,13 @@ function initRealtimeSync(){
     list = list.filter(r => r.lot.toLowerCase().includes(q) || r.product.toLowerCase().includes(q) || (r.code||'').toLowerCase().includes(q));
   }
 
+  if(sortOption === 'test-pass'){
+    list = list.filter(r => r.status === 'released' && getReleasedFrom(r) === 'testing');
+  }
+  if(sortOption === 'block-release'){
+    list = list.filter(r => r.status === 'released' && getReleasedFrom(r) === 'blocked');
+  }
+
   if(sortOption === 'lot'){
     return list.sort((a,b) => a.lot.localeCompare(b.lot, 'ko'));
   }
@@ -628,6 +640,14 @@ function initRealtimeSync(){
 }
 
 const STATUS_LABEL = { testing:'시험검사중', blocked:'블락중', released:'해제됨' };
+const STATUS_ICON = { testing:'🔬', blocked:'⛔', released:'✅' };
+
+function getReleasedFrom(r){
+  if(r.releasedFrom === 'testing' || r.releasedFrom === 'blocked') return r.releasedFrom;
+  // 기존 데이터(필드 없음)는 해제 메모 텍스트로 추측 분류
+  const memo = (r.releaseMemo || '').toString();
+  return memo.includes('시험검사') ? 'testing' : 'blocked';
+}
 
 function render(){
   updateMultiChip();
@@ -677,7 +697,7 @@ function render(){
             <div class="lot">${escapeHtml(r.lot)}${r.code ? ` <span style="color:var(--ink-muted); font-weight:500; font-size:12px;">· ${escapeHtml(r.code)}</span>` : ''}</div>
             <div class="product">${escapeHtml(r.product)}</div>
           </div>
-          <span class="badge ${status}">${STATUS_LABEL[status]}</span>
+          <span class="badge ${status}">${STATUS_ICON[status] || ''} ${STATUS_LABEL[status]}</span>
         </div>
         ${elapsedBadgeHtml(r)}
         <span class="reason-tag">${escapeHtml(r.reason)}</span>
@@ -757,7 +777,7 @@ function openHistory(id){
           <div class="tl-item">
             <div class="tl-dot ${h.status}"></div>
             <div class="tl-top">
-              <span class="badge ${h.status}">${STATUS_LABEL[h.status] || h.status}</span>
+              <span class="badge ${h.status}">${STATUS_ICON[h.status] || ''} ${STATUS_LABEL[h.status] || h.status}</span>
               <span class="tl-date">${h.at ? fmtDate(h.at) : ''}</span>
             </div>
             <div class="tl-by">${escapeHtml(h.by)}${h._legacy ? ' <span class="tl-legacy">(추정)</span>' : ''}</div>
@@ -1079,9 +1099,10 @@ async function submitTestResult(id){
       rec.releasedBy = by;
       rec.releasedAt = new Date().toISOString();
       rec.releaseMemo = memo || '시험검사 적합';
+      rec.releasedFrom = 'testing';
       const entry = makeHistoryEntry('released', by, rec.releaseMemo, rec.releasedAt);
       rec.history = [...(rec.history || []), entry];
-      patch = { status: rec.status, releasedBy: rec.releasedBy, releasedAt: rec.releasedAt, releaseMemo: rec.releaseMemo, history: window.fbArrayUnion(entry) };
+      patch = { status: rec.status, releasedBy: rec.releasedBy, releasedAt: rec.releasedAt, releaseMemo: rec.releaseMemo, releasedFrom: rec.releasedFrom, history: window.fbArrayUnion(entry) };
     } else {
       rec.status = 'blocked';
       rec.testFailBy = by;
@@ -1177,6 +1198,7 @@ async function submitBulkTestResult(){
       rec.releasedBy = by;
       rec.releasedAt = now;
       rec.releaseMemo = bulkMemo;
+      rec.releasedFrom = 'testing';
     } else {
       rec.status = 'blocked';
       rec.testFailBy = by;
@@ -1185,7 +1207,7 @@ async function submitBulkTestResult(){
     }
   });
   const patch = bulkTestChoice === 'pass'
-    ? { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: bulkMemo, history: window.fbArrayUnion(bulkEntry) }
+    ? { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: bulkMemo, releasedFrom: 'testing', history: window.fbArrayUnion(bulkEntry) }
     : { status: 'blocked', testFailBy: by, testFailAt: now, testFailMemo: bulkMemo, history: window.fbArrayUnion(bulkEntry) };
   render();
   closeOverlay('bulkTestOverlay');
@@ -1254,8 +1276,9 @@ async function submitBulkRelease(){
     rec.releasedBy = by;
     rec.releasedAt = now;
     rec.releaseMemo = releaseMemoText;
+    rec.releasedFrom = 'blocked';
   });
-  const patch = { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: releaseMemoText, history: window.fbArrayUnion(bulkEntry) };
+  const patch = { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: releaseMemoText, releasedFrom: 'blocked', history: window.fbArrayUnion(bulkEntry) };
   render();
   closeOverlay('bulkReleaseOverlay');
   await saveMyName(by);
@@ -1301,12 +1324,13 @@ async function submitRelease(id){
     rec.releasedBy = by;
     rec.releasedAt = now;
     rec.releaseMemo = memo;
+    rec.releasedFrom = 'blocked';
     rec.history = [...(rec.history || []), entry];
   }
   render();
   closeOverlay('relOverlay');
   await saveMyName(by);
-  const ok = await window.fbUpdateRecord(id, { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo, history: window.fbArrayUnion(entry) });
+  const ok = await window.fbUpdateRecord(id, { status: 'released', releasedBy: by, releasedAt: now, releaseMemo: memo, releasedFrom: 'blocked', history: window.fbArrayUnion(entry) });
   showToast(ok ? '해제 처리 완료' : '처리됐지만 저장에 실패했어요');
 }
 
@@ -1642,7 +1666,7 @@ function openPrintView(){
       <td>${escapeHtml(r.code) || '-'}</td>
       <td style="font-weight:700;">${escapeHtml(r.lot)}</td>
       <td>${escapeHtml(r.product)}</td>
-      <td>${STATUS_LABEL[r.status] || r.status}</td>
+      <td style="white-space:nowrap;">${STATUS_LABEL[r.status] || r.status}</td>
       <td>${escapeHtml(r.reason || '')}</td>
       <td>${showDays}</td>
       <td>${escapeHtml(r.registeredBy || '')}</td>
@@ -1658,7 +1682,7 @@ function openPrintView(){
       .meta{ font-size:12px; color:#5B6672; margin-bottom:16px; }
       table{ width:100%; border-collapse:collapse; font-size:12px; }
       th, td{ border:1px solid #ccc; padding:6px 8px; text-align:left; }
-      th{ background:#EEF1F4; }
+      th{ background:#EEF1F4; white-space:nowrap; }
       @media print{ button{ display:none; } }
     </style></head><body>
     <h1>블락배치 조회·기록 요약 (${filterLabel})</h1>
@@ -1721,13 +1745,27 @@ document.getElementById('logoutBtn').addEventListener('click', ()=>{
   showAppConfirm('로그아웃 할까요?', '로그아웃', async ()=>{ await window.fbLogout(); });
 });
 document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; render(); });
-document.getElementById('sortSelect').addEventListener('change', (e)=>{ sortOption = e.target.value; render(); });
+document.getElementById('sortSelect').addEventListener('change', (e)=>{
+  sortOption = e.target.value;
+  if(sortOption === 'test-pass' || sortOption === 'block-release'){
+    currentFilter = 'released';
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    const releasedTab = document.querySelector('.tab[data-filter="released"]');
+    if(releasedTab) releasedTab.classList.add('active');
+  }
+  render();
+});
 document.getElementById('openPrintView').addEventListener('click', openPrintView);
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', ()=>{
     document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
     tab.classList.add('active');
     currentFilter = tab.dataset.filter;
+    if(sortOption === 'test-pass' || sortOption === 'block-release'){
+      sortOption = 'recent';
+      const sel = document.getElementById('sortSelect');
+      if(sel) sel.value = 'recent';
+    }
     render();
   });
 });
