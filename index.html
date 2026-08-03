@@ -299,6 +299,21 @@
   .action-row.amber{ background:var(--amber-bg); border-color:#F3C89A; }
   .action-row.amber span{ color:var(--amber); }
   .action-row.amber button{ background:var(--amber); }
+
+  .selection-row{
+    padding:11px 14px; border-radius:10px;
+    background:#EAF0F5; border:1px solid #C7D8E5;
+    display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+  }
+  .selection-row .left{ display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:600; color:var(--steel-dark); }
+  .selection-row .left input{ width:16px; height:16px; }
+  .selection-row .actions{ display:flex; gap:8px; }
+  .selection-row button{
+    font-size:12.5px; font-weight:700; padding:7px 13px; border-radius:8px; border:none; cursor:pointer;
+  }
+  .selection-row .btn-sel-delete{ background:var(--danger); color:#fff; }
+  .selection-row .btn-sel-clear{ background:none; color:var(--ink-muted); border:1px solid var(--line); }
+  .card-select-chk{ width:18px; height:18px; margin-right:6px; flex-shrink:0; margin-top:2px; }
   .empty{
     text-align:center; padding:60px 20px; color:var(--ink-muted);
   }
@@ -535,6 +550,7 @@
   </header>
 
   <div class="action-bar" id="actionBar" style="display:none;"></div>
+  <div id="selectionBar" style="display:none; margin:14px 14px 0;"></div>
   <div class="list" id="list">
     <div class="loading">불러오는 중...</div>
   </div>
@@ -556,6 +572,7 @@ let multiLotTokens = [];
 let myName = '';
 let isGuestMode = false;
 let isAdminMode = false;
+let selectedIds = new Set();
 let sortOption = 'recent';
 
 const REASONS = ['신규배치 시험검사(출하승인 대기)','품질이상','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
@@ -710,6 +727,7 @@ function render(){
 
   const list = getFiltered();
   const el = document.getElementById('list');
+  renderSelectionBar(list);
 
   if(list.length === 0){
     el.innerHTML = `<div class="empty">
@@ -726,9 +744,12 @@ function render(){
     <div class="card ${status}">
       <div class="card-inner">
         <div class="card-top">
-          <div>
-            <div class="lot">${escapeHtml(r.lot)}${r.code ? ` <span style="color:var(--ink-muted); font-weight:500; font-size:12px;">· ${escapeHtml(r.code)}</span>` : ''}</div>
-            <div class="product">${escapeHtml(r.product)}</div>
+          <div style="display:flex; align-items:flex-start;">
+            ${isGuestMode ? '' : `<input type="checkbox" class="card-select-chk" ${selectedIds.has(r.id) ? 'checked' : ''} onchange="toggleSelect('${r.id}', this.checked)">`}
+            <div>
+              <div class="lot">${escapeHtml(r.lot)}${r.code ? ` <span style="color:var(--ink-muted); font-weight:500; font-size:12px;">· ${escapeHtml(r.code)}</span>` : ''}</div>
+              <div class="product">${escapeHtml(r.product)}</div>
+            </div>
           </div>
           <span class="badge ${status}">${STATUS_ICON[status] || ''} ${STATUS_LABEL[status]}</span>
         </div>
@@ -1458,6 +1479,79 @@ async function revertRecord(id){
   const patch = { status: newStatus, ...clearFields, history: window.fbArrayUnion(entry) };
   const ok = await window.fbUpdateRecord(id, patch);
   showToast(ok ? '되돌리기 완료' : '되돌렸지만 저장에 실패했어요');
+}
+
+function renderSelectionBar(currentList){
+  const bar = document.getElementById('selectionBar');
+  if(isGuestMode || currentList.length === 0){
+    bar.style.display = 'none';
+    return;
+  }
+  const visibleIds = currentList.map(r => r.id);
+  const allChecked = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+  const count = selectedIds.size;
+
+  bar.style.display = 'block';
+  bar.innerHTML = `
+    <div class="selection-row">
+      <div class="left">
+        <input type="checkbox" id="selectAllChk" ${allChecked ? 'checked' : ''} onchange="toggleSelectAll(this.checked)">
+        <span>${count > 0 ? `${count}건 선택됨` : '전체 선택'}</span>
+      </div>
+      <div class="actions">
+        ${count > 0 ? `<button class="btn-sel-clear" onclick="clearSelection()">선택 해제</button>
+        <button class="btn-sel-delete" onclick="openBulkDeleteSelectedModal()">선택 삭제</button>` : ''}
+      </div>
+    </div>`;
+}
+
+function toggleSelect(id, checked){
+  if(checked) selectedIds.add(id);
+  else selectedIds.delete(id);
+  renderSelectionBar(getFiltered());
+}
+
+function toggleSelectAll(checked){
+  const ids = getFiltered().map(r => r.id);
+  if(checked) ids.forEach(id => selectedIds.add(id));
+  else ids.forEach(id => selectedIds.delete(id));
+  render();
+}
+
+function clearSelection(){
+  selectedIds.clear();
+  render();
+}
+
+function openBulkDeleteSelectedModal(){
+  const count = selectedIds.size;
+  if(count === 0) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'bulkDeleteSelOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>선택 항목 삭제</h2>
+      <p style="font-size:13.5px; color:var(--ink-muted); line-height:1.6;">
+        선택하신 <b style="color:var(--danger);">${count}건</b>을 삭제할까요?<br>삭제하면 되돌릴 수 없어요.
+      </p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('bulkDeleteSelOverlay')">취소</button>
+        <button class="btn-submit danger" id="bulkDeleteSelBtn">삭제</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('bulkDeleteSelOverlay'); });
+
+  document.getElementById('bulkDeleteSelBtn').addEventListener('click', async ()=>{
+    const ids = [...selectedIds];
+    closeOverlay('bulkDeleteSelOverlay');
+    records = records.filter(r => !ids.includes(r.id));
+    selectedIds.clear();
+    render();
+    const ok = await window.fbBulkDelete(ids);
+    showToast(ok ? `${ids.length}건 삭제 완료` : '삭제됐지만 저장에 일부 실패했어요');
+  });
 }
 
 function applyAdminModeUI(){
