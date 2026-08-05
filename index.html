@@ -262,6 +262,8 @@
   .stat-chip.c-testing .n{ color:#9DBBFF; }
   .stat-chip.c-blocked .n{ color:#FFD9B3; }
   .stat-chip.c-released .n{ color:#A6E4C2; }
+  .stat-chip.c-total{ background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.32); }
+  .stat-chip.c-total .n{ color:#fff; font-weight:700; }
 
   .search-row{ margin-top:14px; position:relative; }
   .search-row input{
@@ -591,6 +593,7 @@
       <div class="stat-chip c-testing">시험검사중 <span class="n" id="testingCount">-</span></div>
       <div class="stat-chip c-blocked">블락중 <span class="n" id="activeCount">-</span></div>
       <div class="stat-chip c-released">해제됨 <span class="n" id="releasedCount">-</span></div>
+      <div class="stat-chip c-total">누적 <span class="n" id="totalCount">-</span></div>
     </div>
     <div class="search-row">
       <span class="search-icon">🔍</span>
@@ -775,6 +778,7 @@ function render(){
   document.getElementById('testingCount').textContent = records.filter(r => r.status === 'testing').length;
   document.getElementById('activeCount').textContent = records.filter(r => r.status === 'blocked').length;
   document.getElementById('releasedCount').textContent = records.filter(r => r.status === 'released').length;
+  document.getElementById('totalCount').textContent = records.length;
 
   const bar = document.getElementById('actionBar');
   let rows = '';
