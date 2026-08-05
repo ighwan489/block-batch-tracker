@@ -2029,6 +2029,7 @@ let certImageBlob = null;
 let certImageDataUrl = null;
 let certCropRect = null; // OCR 인식용 확대 영역 (natural px 기준) - 저장은 항상 원본 전체
 let certCropArmed = false;
+let certUploadMode = 'image'; // 'image' | 'text'
 let certRawText = '';
 let certCanonText = '';
 let certSelectedIds = new Set();
@@ -2041,6 +2042,7 @@ function openCertUploadModal(){
   certImageDataUrl = null;
   certCropRect = null;
   certCropArmed = false;
+  certUploadMode = 'image';
   certSelectedIds = new Set();
   certAutoMatchedCount = 0;
   certSearchText = '';
@@ -2050,15 +2052,37 @@ function openCertUploadModal(){
   overlay.innerHTML = `
     <div class="modal">
       <h2>성적서(출하승인서) 업로드</h2>
-      <div class="hint" style="margin-bottom:10px;">Win+Shift+S로 출하승인서 화면을 캡처한 뒤, 아래 영역을 클릭하고 <code>Ctrl+V</code>로 붙여넣으세요. 파일 선택(이미지 또는 PDF)도 가능해요.<br>💡 전체 문서를 그대로 캡처해주세요 (증빙 보존을 위해). OCR이 자동으로 못 맞히면 아래 검색창에서 직접 선택하시면 돼요.</div>
-      <div class="paste-zone" id="certPasteZone" tabindex="0">📋 여기를 클릭하고 Ctrl+V로 붙여넣기<br>또는 클릭해서 파일 선택
-        <input type="file" id="certFileInput" accept="image/*,.pdf,application/pdf" style="display:none;">
+      <div class="modal-tabs">
+        <div class="modal-tab active" data-mode="image" id="certModeTabImage" onclick="switchCertMode('image')">이미지 캡처</div>
+        <div class="modal-tab" data-mode="text" id="certModeTabText" onclick="switchCertMode('text')">이메일 · 표 텍스트</div>
       </div>
-      <div id="certAnalyzeWrap" style="display:none; margin-top:14px;">
-        <button class="btn-cancel" style="width:100%; margin-bottom:8px;" id="certCropBtn" onclick="toggleCertCropMode()">🔍 제조번호 부분만 선택해서 인식 정확도 높이기 (선택사항)</button>
-        <div class="hint" id="certCropHint" style="display:none; text-align:center; margin-top:0;">이미지 위에서 제조번호가 있는 부분을 드래그해서 선택하세요</div>
-        <button class="btn-submit" style="width:100%;" id="certAnalyzeBtn">🔍 분석하기 (OCR로 제조번호 찾기)</button>
+
+      <div id="certImageModeArea">
+        <div class="hint" style="margin-bottom:10px;">Win+Shift+S로 출하승인서 화면을 캡처한 뒤, 아래 영역을 클릭하고 <code>Ctrl+V</code>로 붙여넣으세요. 파일 선택(이미지 또는 PDF)도 가능해요.<br>💡 전체 문서를 그대로 캡처해주세요 (증빙 보존을 위해). OCR이 자동으로 못 맞히면 아래 검색창에서 직접 선택하시면 돼요.</div>
+        <div class="paste-zone" id="certPasteZone" tabindex="0">📋 여기를 클릭하고 Ctrl+V로 붙여넣기<br>또는 클릭해서 파일 선택
+          <input type="file" id="certFileInput" accept="image/*,.pdf,application/pdf" style="display:none;">
+        </div>
+        <div id="certAnalyzeWrap" style="display:none; margin-top:14px;">
+          <button class="btn-cancel" style="width:100%; margin-bottom:8px;" id="certCropBtn" onclick="toggleCertCropMode()">🔍 제조번호 부분만 선택해서 인식 정확도 높이기 (선택사항)</button>
+          <div class="hint" id="certCropHint" style="display:none; text-align:center; margin-top:0;">이미지 위에서 제조번호가 있는 부분을 드래그해서 선택하세요</div>
+          <button class="btn-submit" style="width:100%;" id="certAnalyzeBtn">🔍 분석하기 (OCR로 제조번호 찾기)</button>
+        </div>
       </div>
+
+      <div id="certTextModeArea" style="display:none;">
+        <div class="hint" style="margin-bottom:10px;">성적서 대신 이메일로 출하승인 결과를 받으신 경우, <b>이메일 본문 전체(위아래 문구 + 표 데이터)를 그대로 복사</b>해서 아래에 붙여넣으세요. OCR 없이 텍스트로 바로 인식돼서 훨씬 정확해요.</div>
+        <div class="field">
+          <textarea id="certTextInput" style="min-height:160px; font-family:'JetBrains Mono',monospace; font-size:12.5px;" placeholder="예)
+안녕하세요, 출하승인 결과 안내드립니다.
+
+제품명    규격    제품번호    제조번호
+OOO정제  500mg  PC-1234    LOT2026-001
+
+첨부와 같이 승인되었으니 출고 부탁드립니다."></textarea>
+        </div>
+        <button class="btn-submit" style="width:100%;" id="certTextAnalyzeBtn" onclick="analyzeCertText()">🔍 분석하기 (텍스트에서 제조번호 찾기)</button>
+      </div>
+
       <div id="certProgressWrap" style="display:none;">
         <div class="ocr-progress" id="certProgress">분석 준비 중...</div>
       </div>
@@ -2111,6 +2135,38 @@ function initCertPasteZoneListeners(){
   fileInput.addEventListener('change', ()=>{
     if(fileInput.files.length) loadCertImage(fileInput.files[0]);
   });
+}
+
+function switchCertMode(mode){
+  certUploadMode = mode;
+  document.getElementById('certModeTabImage').classList.toggle('active', mode === 'image');
+  document.getElementById('certModeTabText').classList.toggle('active', mode === 'text');
+  document.getElementById('certImageModeArea').style.display = mode === 'image' ? 'block' : 'none';
+  document.getElementById('certTextModeArea').style.display = mode === 'text' ? 'block' : 'none';
+  document.getElementById('certMatchWrap').style.display = 'none';
+  document.getElementById('certProgressWrap').style.display = 'none';
+}
+
+// 이메일/표 텍스트를 그대로 붙여넣은 경우 - OCR 없이 텍스트에서 바로 제조번호를 찾음 (훨씬 정확함)
+function analyzeCertText(){
+  const raw = document.getElementById('certTextInput').value;
+  if(!raw || !raw.trim()){ showToast('내용을 먼저 붙여넣어주세요'); return; }
+  certRawText = raw;
+  const normText = raw.replace(/[\s\-_]/g, '').toUpperCase();
+  const canonText = ocrCanonical(normText);
+  certCanonText = canonText;
+
+  const matched = records.filter(r => {
+    const normLot = (r.lot || '').replace(/[\s\-_]/g, '').toUpperCase();
+    if(normLot.length < 4) return false;
+    if(normText.includes(normLot)) return true;
+    const canonLot = ocrCanonical(normLot);
+    if(canonText.includes(canonLot)) return true;
+    return fuzzyIncludes(canonText, canonLot, 1);
+  });
+
+  renderCertMatchList(matched);
+  document.getElementById('certMatchWrap').style.display = 'block';
 }
 
 async function pdfFileToDataUrl(file){
@@ -2564,28 +2620,44 @@ async function submitCertUpload(){
   }
   const submitBtn = document.getElementById('certSubmitBtn');
   submitBtn.disabled = true;
-  submitBtn.textContent = '압축 중...';
 
-  let compressedData = null;
-  try{
-    compressedData = await compressCertImage(certImageDataUrl);
-  }catch(err){
-    console.error('압축 실패:', err);
-    showToast('이미지 압축에 실패했어요');
-    submitBtn.disabled = false;
-    submitBtn.textContent = '선택 항목에 성적서 첨부';
-    return;
-  }
-
-  submitBtn.textContent = '업로드 중...';
   const now = new Date().toISOString();
-  const certObj = { data: compressedData, uploadedBy: by, uploadedAt: now };
+  let certObj = null;
+  let dupCheck = null;
+
+  if(certUploadMode === 'text'){
+    submitBtn.textContent = '업로드 중...';
+    const textVal = document.getElementById('certTextInput') ? document.getElementById('certTextInput').value : certRawText;
+    if(!textVal || !textVal.trim()){
+      showToast('붙여넣은 텍스트가 없어요');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '선택 항목에 성적서 첨부';
+      return;
+    }
+    certObj = { text: textVal, uploadedBy: by, uploadedAt: now };
+    dupCheck = (c)=> c.text === textVal;
+  } else {
+    submitBtn.textContent = '압축 중...';
+    let compressedData = null;
+    try{
+      compressedData = await compressCertImage(certImageDataUrl);
+    }catch(err){
+      console.error('압축 실패:', err);
+      showToast('이미지 압축에 실패했어요');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '선택 항목에 성적서 첨부';
+      return;
+    }
+    submitBtn.textContent = '업로드 중...';
+    certObj = { data: compressedData, uploadedBy: by, uploadedAt: now };
+    dupCheck = (c)=> c.data === compressedData;
+  }
 
   let successCount = 0;
   let skippedDupCount = 0;
   for(const id of checkedIds){
     const rec = records.find(r => r.id === id);
-    const alreadyExists = rec && Array.isArray(rec.certificates) && rec.certificates.some(c => c.data === compressedData);
+    const alreadyExists = rec && Array.isArray(rec.certificates) && rec.certificates.some(dupCheck);
     if(alreadyExists){ skippedDupCount++; continue; }
     const ok = await window.fbAddCertificate(id, certObj);
     if(ok){
@@ -2637,9 +2709,12 @@ function openCertImageFull(id, idx){
 function printCertificate(id, idx){
   const rec = records.find(r => r.id === id);
   if(!rec || !rec.certificates || !rec.certificates[idx]) return;
-  const src = rec.certificates[idx].data || rec.certificates[idx].url;
+  const c = rec.certificates[idx];
   const win = window.open('', '_blank');
   if(!win){ showToast('팝업이 차단됐어요 - 팝업 허용 후 다시 시도해주세요'); return; }
+  const bodyHtml = c.text
+    ? `<pre style="text-align:left; white-space:pre-wrap; font-size:13px; max-width:700px; margin:0 auto; font-family:'Malgun Gothic',monospace;">${escapeHtml(c.text)}</pre>`
+    : `<img src="${c.data || c.url}" alt="성적서">`;
   win.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
     <title>성적서 인쇄 - ${escapeHtml(rec.lot)}</title>
     <style>
@@ -2649,7 +2724,7 @@ function printCertificate(id, idx){
       @media print{ .p-btn{ display:none; } body{ margin:0; } }
     </style></head><body>
     <button class="p-btn" onclick="window.print()">인쇄하기</button>
-    <img src="${src}" alt="성적서">
+    ${bodyHtml}
     </body></html>`);
   win.document.close();
 }
@@ -2667,9 +2742,11 @@ function openCertView(id){
       <div class="cert-gallery" id="certGalleryList_${id}">
         ${rec.certificates.map((c, idx) => `
           <div class="cert-gallery-item">
-            <img src="${c.data || c.url}" alt="성적서" onclick="openCertImageFull('${id}', ${idx})">
+            ${c.text
+              ? `<pre style="white-space:pre-wrap; font-size:12px; padding:12px; margin:0; background:#FBFCFD; max-height:220px; overflow-y:auto; font-family:'JetBrains Mono',monospace;">${escapeHtml(c.text)}</pre>`
+              : `<img src="${c.data || c.url}" alt="성적서" onclick="openCertImageFull('${id}', ${idx})">`}
             <div class="cert-gallery-meta" style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-              <span>첨부 · ${escapeHtml(c.uploadedBy || '')} · ${c.uploadedAt ? fmtDate(c.uploadedAt) : ''}</span>
+              <span>${c.text ? '📧 텍스트 첨부' : '🖼 이미지 첨부'} · ${escapeHtml(c.uploadedBy || '')} · ${c.uploadedAt ? fmtDate(c.uploadedAt) : ''}</span>
               <div style="display:flex; gap:6px;">
                 <button class="btn-sm btn-cert" onclick="printCertificate('${id}', ${idx})">인쇄</button>
                 <button class="btn-sm btn-del" onclick="deleteCertificate('${id}', ${idx})">삭제</button>
