@@ -2157,6 +2157,37 @@ function ocrCanonical(str){
     .replace(/[G6]/g, '6');
 }
 
+function levenshtein(a, b){
+  const m = a.length, n = b.length;
+  if(Math.abs(m - n) > 2) return 99; // 길이 차이가 너무 크면 빠르게 포기 (성능 최적화)
+  const dp = [];
+  for(let i = 0; i <= m; i++){ dp.push(new Array(n + 1).fill(0)); dp[i][0] = i; }
+  for(let j = 0; j <= n; j++) dp[0][j] = j;
+  for(let i = 1; i <= m; i++){
+    for(let j = 1; j <= n; j++){
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[m][n];
+}
+
+// haystack 안에서 needle과 편집거리 maxDist 이내로 비슷한 부분문자열을 찾음 (삽입/삭제/치환 오류 모두 대응)
+function fuzzyIncludes(haystack, needle, maxDist){
+  const nLen = needle.length;
+  if(nLen < 5) return false; // 너무 짧으면 오탐 위험 커서 제외
+  const minWin = Math.max(1, nLen - maxDist);
+  const maxWin = nLen + maxDist;
+  for(let start = 0; start <= haystack.length - minWin; start++){
+    for(let winLen = minWin; winLen <= maxWin; winLen++){
+      if(start + winLen > haystack.length) break;
+      const window = haystack.substr(start, winLen);
+      if(levenshtein(window, needle) <= maxDist) return true;
+    }
+  }
+  return false;
+}
+
 async function runCertOcr(){
   if(!certImageDataUrl){ showToast('이미지를 먼저 붙여넣거나 선택해주세요'); return; }
   document.getElementById('certAnalyzeWrap').style.display = 'none';
@@ -2195,8 +2226,11 @@ async function runCertOcr(){
       const normLot = (r.lot || '').replace(/[\s\-_]/g, '').toUpperCase();
       if(normLot.length < 4) return false;
       if(normText.includes(normLot)) return true;
+      const canonLot = ocrCanonical(normLot);
       // 흔한 OCR 오인식 문자쌍(O/0, S/5, I·L/1, B/8, Z/2, G/6 등)을 대표 문자로 통일해서 재대조
-      return canonText.includes(ocrCanonical(normLot));
+      if(canonText.includes(canonLot)) return true;
+      // 문자 치환뿐 아니라 삽입/삭제(글자 하나 더 끼거나 빠짐) 오류까지 편집거리로 보정 (최대 1글자 차이 허용)
+      return fuzzyIncludes(canonText, canonLot, 1);
     });
 
     renderCertMatchList(matched);
@@ -2277,14 +2311,22 @@ function renderCertSelectableList(){
     list.innerHTML = sorted.map(r => {
       const dbgNormLot = (r.lot || '').replace(/[\s\-_]/g, '').toUpperCase();
       const dbgCanonLot = ocrCanonical(dbgNormLot);
-      const dbgFound = certCanonText ? certCanonText.includes(dbgCanonLot) : false;
+      let dbgLabel = '❌ 텍스트에 없음';
+      let dbgColor = '#B3261E';
+      if(certCanonText && certCanonText.includes(dbgCanonLot)){
+        dbgLabel = '✅ 정확히 포함됨';
+        dbgColor = '#157347';
+      } else if(certCanonText && fuzzyIncludes(certCanonText, dbgCanonLot, 1)){
+        dbgLabel = '🟡 유사 매칭 (1글자 차이)';
+        dbgColor = '#B4530A';
+      }
       return `
       <div class="match-item">
         <input type="checkbox" class="cert-chk" data-id="${r.id}" ${certSelectedIds.has(r.id) ? 'checked' : ''} onchange="toggleCertSelect('${r.id}', this.checked)">
         <div class="m-info">
           <div class="m-lot">${escapeHtml(r.lot)} <span class="badge ${r.status}" style="margin-left:6px;">${STATUS_ICON[r.status] || ''} ${STATUS_LABEL[r.status]}</span></div>
           <div class="m-product">${escapeHtml(r.product)}${r.code ? ' · ' + escapeHtml(r.code) : ''}</div>
-          <div style="font-size:10px; color:${dbgFound ? '#157347' : '#B3261E'}; font-family:'JetBrains Mono',monospace; margin-top:3px;">정규화: ${escapeHtml(dbgCanonLot)} · ${dbgFound ? '✅ 텍스트에 포함됨' : '❌ 텍스트에 없음'}</div>
+          <div style="font-size:10px; color:${dbgColor}; font-family:'JetBrains Mono',monospace; margin-top:3px;">정규화: ${escapeHtml(dbgCanonLot)} · ${dbgLabel}</div>
         </div>
       </div>`;
     }).join('') + (!filterText && truncated ? `<div class="hint" style="text-align:center;">최근 항목 20건까지만 표시 중 · 검색하면 전체에서 찾을 수 있어요</div>` : '') + debugHtml;
