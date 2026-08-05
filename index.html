@@ -2274,14 +2274,20 @@ function renderCertSelectableList(){
   if(sorted.length === 0){
     list.innerHTML = `<div class="no-match">${filterText ? '검색 결과가 없어요' : '등록된 LOT이 없어요'}</div>${debugHtml}`;
   } else {
-    list.innerHTML = sorted.map(r => `
+    list.innerHTML = sorted.map(r => {
+      const dbgNormLot = (r.lot || '').replace(/[\s\-_]/g, '').toUpperCase();
+      const dbgCanonLot = ocrCanonical(dbgNormLot);
+      const dbgFound = certCanonText ? certCanonText.includes(dbgCanonLot) : false;
+      return `
       <div class="match-item">
         <input type="checkbox" class="cert-chk" data-id="${r.id}" ${certSelectedIds.has(r.id) ? 'checked' : ''} onchange="toggleCertSelect('${r.id}', this.checked)">
         <div class="m-info">
           <div class="m-lot">${escapeHtml(r.lot)} <span class="badge ${r.status}" style="margin-left:6px;">${STATUS_ICON[r.status] || ''} ${STATUS_LABEL[r.status]}</span></div>
           <div class="m-product">${escapeHtml(r.product)}${r.code ? ' · ' + escapeHtml(r.code) : ''}</div>
+          <div style="font-size:10px; color:${dbgFound ? '#157347' : '#B3261E'}; font-family:'JetBrains Mono',monospace; margin-top:3px;">정규화: ${escapeHtml(dbgCanonLot)} · ${dbgFound ? '✅ 텍스트에 포함됨' : '❌ 텍스트에 없음'}</div>
         </div>
-      </div>`).join('') + (!filterText && truncated ? `<div class="hint" style="text-align:center;">최근 항목 20건까지만 표시 중 · 검색하면 전체에서 찾을 수 있어요</div>` : '') + debugHtml;
+      </div>`;
+    }).join('') + (!filterText && truncated ? `<div class="hint" style="text-align:center;">최근 항목 20건까지만 표시 중 · 검색하면 전체에서 찾을 수 있어요</div>` : '') + debugHtml;
   }
   if(submitBtn) submitBtn.style.display = 'block';
 }
