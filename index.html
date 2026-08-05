@@ -2144,6 +2144,18 @@ function preprocessImageForOcr(dataUrl){
   });
 }
 
+// OCR이 흔히 헷갈리는 문자쌍들을 대표 문자 하나로 통일 (O/0, S/5, I·L/1, B/8, Z/2, G/6, D/0)
+// 위치·개수 상관없이 여러 글자가 동시에 헷갈려도 한 번에 대응 가능
+function ocrCanonical(str){
+  return str
+    .replace(/[O0D]/g, '0')
+    .replace(/[S5]/g, '5')
+    .replace(/[IL1]/g, '1')
+    .replace(/[B8]/g, '8')
+    .replace(/[Z2]/g, '2')
+    .replace(/[G6]/g, '6');
+}
+
 async function runCertOcr(){
   if(!certImageDataUrl){ showToast('이미지를 먼저 붙여넣거나 선택해주세요'); return; }
   document.getElementById('certAnalyzeWrap').style.display = 'none';
@@ -2175,15 +2187,14 @@ async function runCertOcr(){
     const rawText = (result && result.data && result.data.text) ? result.data.text : '';
     certRawText = rawText;
     const normText = rawText.replace(/[\s\-_]/g, '').toUpperCase();
+    const canonText = ocrCanonical(normText);
 
     const matched = records.filter(r => {
       const normLot = (r.lot || '').replace(/[\s\-_]/g, '').toUpperCase();
       if(normLot.length < 4) return false;
       if(normText.includes(normLot)) return true;
-      // O/0 혼동 등 흔한 OCR 오인식 보정: O<->0 치환해서 한번 더 대조
-      const normLotAsZero = normLot.replace(/O/g, '0');
-      const normLotAsO = normLot.replace(/0/g, 'O');
-      return normText.includes(normLotAsZero) || normText.includes(normLotAsO);
+      // 흔한 OCR 오인식 문자쌍(O/0, S/5, I·L/1, B/8, Z/2, G/6 등)을 대표 문자로 통일해서 재대조
+      return canonText.includes(ocrCanonical(normLot));
     });
 
     renderCertMatchList(matched);
