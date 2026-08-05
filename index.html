@@ -2008,6 +2008,7 @@ function exportToExcel(){
 
 let certImageBlob = null;
 let certImageDataUrl = null;
+let certRawText = '';
 
 function openCertUploadModal(){
   closeOverlay('certOverlay');
@@ -2106,6 +2107,7 @@ async function runCertOcr(){
       }
     });
     const rawText = (result && result.data && result.data.text) ? result.data.text : '';
+    certRawText = rawText;
     const normText = rawText.replace(/[\s\-_]/g, '').toUpperCase();
 
     const matched = records.filter(r => {
@@ -2128,9 +2130,14 @@ function renderCertMatchList(matched){
   const summary = document.getElementById('certMatchSummary');
   const list = document.getElementById('certMatchList');
   const submitBtn = document.getElementById('certSubmitBtn');
+  const debugHtml = `
+    <details style="margin-top:12px;">
+      <summary style="font-size:11.5px; color:var(--ink-muted); cursor:pointer; font-weight:600;">🔍 OCR이 인식한 텍스트 보기 (디버그용)</summary>
+      <pre style="white-space:pre-wrap; font-size:10.5px; color:var(--ink-muted); background:#F7F8FA; padding:10px; border-radius:8px; margin-top:6px; max-height:180px; overflow-y:auto; font-family:'JetBrains Mono',monospace;">${escapeHtml(certRawText || '(인식된 텍스트 없음)')}</pre>
+    </details>`;
   if(matched.length === 0){
     summary.innerHTML = `매칭된 등록 LOT을 찾지 못했어요`;
-    list.innerHTML = `<div class="no-match">사이트에 등록된 LOT 중 이 캡처본에서 발견된 게 없어요.<br>이미지가 흐릿하거나 아직 등록 안 된 LOT일 수 있어요.</div>`;
+    list.innerHTML = `<div class="no-match">사이트에 등록된 LOT 중 이 캡처본에서 발견된 게 없어요.<br>이미지가 흐릿하거나 아직 등록 안 된 LOT일 수 있어요.</div>${debugHtml}`;
     if(submitBtn) submitBtn.style.display = 'none';
     return;
   }
@@ -2143,7 +2150,7 @@ function renderCertMatchList(matched){
         <div class="m-lot">${escapeHtml(r.lot)} <span class="badge ${r.status}" style="margin-left:6px;">${STATUS_ICON[r.status] || ''} ${STATUS_LABEL[r.status]}</span></div>
         <div class="m-product">${escapeHtml(r.product)}${r.code ? ' · ' + escapeHtml(r.code) : ''}</div>
       </div>
-    </div>`).join('');
+    </div>`).join('') + debugHtml;
 }
 
 function compressImageToDataUrl(dataUrl, maxWidth, quality){
