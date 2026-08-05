@@ -2037,7 +2037,7 @@ function openCertUploadModal(){
   overlay.innerHTML = `
     <div class="modal">
       <h2>성적서(출하승인서) 업로드</h2>
-      <div class="hint" style="margin-bottom:10px;">Win+Shift+S로 출하승인서 화면을 캡처한 뒤, 아래 영역을 클릭하고 <code>Ctrl+V</code>로 붙여넣으세요. 파일 선택도 가능해요.</div>
+      <div class="hint" style="margin-bottom:10px;">Win+Shift+S로 출하승인서 화면을 캡처한 뒤, 아래 영역을 클릭하고 <code>Ctrl+V</code>로 붙여넣으세요. 파일 선택도 가능해요.<br>💡 전체 문서를 그대로 캡처해주세요 (증빙 보존을 위해). OCR이 자동으로 못 맞히면 아래 검색창에서 직접 선택하시면 돼요.</div>
       <div class="paste-zone" id="certPasteZone" tabindex="0">📋 여기를 클릭하고 Ctrl+V로 붙여넣기<br>또는 클릭해서 파일 선택
         <input type="file" id="certFileInput" accept="image/*" style="display:none;">
       </div>
@@ -2111,6 +2111,37 @@ document.addEventListener('click', function(e){
   if(e.target && e.target.id === 'certAnalyzeBtn') runCertOcr();
 });
 
+function preprocessImageForOcr(dataUrl){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const scale = 2; // 업스케일로 작은 글자 인식률 향상
+      const w = img.width * scale;
+      const h = img.height * scale;
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, w, h);
+      try{
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const d = imageData.data;
+        for(let i = 0; i < d.length; i += 4){
+          const gray = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
+          let v = (gray - 128) * 1.4 + 128; // 흑백 변환 + 대비 강조
+          v = Math.max(0, Math.min(255, v));
+          d[i] = d[i+1] = d[i+2] = v;
+        }
+        ctx.putImageData(imageData, 0, 0);
+      }catch(e){ console.warn('전처리 스킵:', e); }
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
 async function runCertOcr(){
   if(!certImageDataUrl){ showToast('이미지를 먼저 붙여넣거나 선택해주세요'); return; }
   document.getElementById('certAnalyzeWrap').style.display = 'none';
@@ -2118,8 +2149,11 @@ async function runCertOcr(){
   const progressEl = document.getElementById('certProgress');
   let worker = null;
   try{
+    progressEl.textContent = '이미지 전처리 중...';
+    const preprocessed = await preprocessImageForOcr(certImageDataUrl);
+
     progressEl.textContent = '언어 데이터 불러오는 중... (처음 1회만 오래 걸려요)';
-    worker = await Tesseract.createWorker('eng+kor', 1, {
+    worker = await Tesseract.createWorker('eng', 1, {
       logger: (m)=>{
         if(m.status === 'recognizing text'){
           progressEl.textContent = `텍스트 인식 중... ${Math.round((m.progress||0)*100)}%`;
@@ -2128,8 +2162,11 @@ async function runCertOcr(){
         }
       }
     });
-    await worker.setParameters({ tessedit_pageseg_mode: '6' }); // 표/블록 단위 인식에 유리한 모드
-    const result = await worker.recognize(certImageDataUrl);
+    await worker.setParameters({
+      tessedit_pageseg_mode: '6',
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    });
+    const result = await worker.recognize(preprocessed);
     await worker.terminate();
     worker = null;
 
