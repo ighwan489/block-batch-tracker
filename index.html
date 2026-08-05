@@ -2212,6 +2212,7 @@ function setupCertCropHandlers(){
   const onStart = (e)=>{
     if(!certCropArmed) return;
     e.preventDefault();
+    e.stopPropagation();
     const p = getPos(e);
     startX = Math.max(0, Math.min(p.x, p.rect.width));
     startY = Math.max(0, Math.min(p.y, p.rect.height));
@@ -2265,6 +2266,7 @@ function setupCertCropHandlers(){
     showToast('영역이 선택됐어요 - 이 부분만 확대해서 인식해요');
   };
 
+  overlay.addEventListener('click', (e)=> e.stopPropagation());
   overlay.addEventListener('mousedown', onStart);
   overlay.addEventListener('mousemove', onMove);
   overlay.addEventListener('mouseup', onEnd);
