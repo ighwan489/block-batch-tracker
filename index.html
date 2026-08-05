@@ -392,10 +392,12 @@
   .card-actions{ display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
   .btn-sm{
     font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:8px; border:none; cursor:pointer;
+    flex:0 1 auto;
   }
-  .btn-release{ background:var(--steel); color:#fff; flex:1; }
+  .btn-full-row{ flex:1 1 100% !important; }
+  .btn-release{ background:var(--steel); color:#fff; }
   .btn-release:hover{ background:var(--steel-dark); }
-  .btn-test{ background:var(--blue); color:#fff; flex:1; }
+  .btn-test{ background:var(--blue); color:#fff; }
   .btn-test:hover{ background:#173FAE; }
   .btn-del{ background:none; color:var(--ink-muted); border:1px solid var(--line); }
   .btn-del:hover{ color:var(--danger); border-color:var(--danger); }
@@ -838,8 +840,8 @@ function render(){
           <button class="btn-sm btn-history" onclick="openHistory('${r.id}')">이력</button>
         </div>` : `
         <div class="card-actions">
-          ${status === 'testing' ? `<button class="btn-sm btn-test" onclick="openTestResult('${r.id}')">검사 결과 입력</button>` : ''}
-          ${status === 'blocked' ? `<button class="btn-sm btn-release" onclick="openRelease('${r.id}')">해제 처리</button>` : ''}
+          ${status === 'testing' ? `<button class="btn-sm btn-test btn-full-row" onclick="openTestResult('${r.id}')">검사 결과 입력</button>` : ''}
+          ${status === 'blocked' ? `<button class="btn-sm btn-release btn-full-row" onclick="openRelease('${r.id}')">해제 처리</button>` : ''}
           ${(status === 'released' || (status === 'blocked' && r.testFailBy)) ? `<button class="btn-sm btn-revert" onclick="revertRecord('${r.id}')">되돌리기</button>` : ''}
           <button class="btn-sm" style="background:#EAF0F5; color:var(--steel-dark);" onclick="openEdit('${r.id}')">수정</button>
           <button class="btn-sm btn-history" onclick="openHistory('${r.id}')">이력</button>
