@@ -18,7 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   import { getAuth, signInWithEmailAndPassword, signInAnonymously, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
   const TEAM_EMAIL = "fmek@korea.com";
@@ -177,6 +177,17 @@
           return true;
         }catch(e){
           console.error('Firestore certificate add error:', e);
+          return false;
+        }
+      };
+
+      // 특정 레코드에서 성적서 하나 제거 (certObj가 저장된 값과 정확히 일치해야 제거됨)
+      window.fbRemoveCertificate = async function(id, certObj){
+        try{
+          await updateDoc(doc(recordsCol, id), { certificates: arrayRemove(certObj) });
+          return true;
+        }catch(e){
+          console.error('Firestore certificate remove error:', e);
           return false;
         }
       };
@@ -2283,10 +2294,13 @@ async function submitCertUpload(){
   const certObj = { data: compressedData, uploadedBy: by, uploadedAt: now };
 
   let successCount = 0;
+  let skippedDupCount = 0;
   for(const id of checkedIds){
+    const rec = records.find(r => r.id === id);
+    const alreadyExists = rec && Array.isArray(rec.certificates) && rec.certificates.some(c => c.data === compressedData);
+    if(alreadyExists){ skippedDupCount++; continue; }
     const ok = await window.fbAddCertificate(id, certObj);
     if(ok){
-      const rec = records.find(r => r.id === id);
       if(rec){
         rec.certificates = rec.certificates || [];
         rec.certificates.push(certObj);
@@ -2297,7 +2311,13 @@ async function submitCertUpload(){
   render();
   closeOverlay('certOverlay');
   await saveMyName(by);
-  showToast(successCount === checkedIds.length ? `${successCount}건에 성적서 첨부 완료` : `${successCount}/${checkedIds.length}건만 첨부됐어요`);
+  if(successCount === 0 && skippedDupCount > 0){
+    showToast('이미 같은 성적서가 첨부돼 있어서 건너뛰었어요');
+  } else if(skippedDupCount > 0){
+    showToast(`${successCount}건 첨부 완료 (동일 성적서 ${skippedDupCount}건은 중복이라 건너뜀)`);
+  } else {
+    showToast(successCount === checkedIds.length ? `${successCount}건에 성적서 첨부 완료` : `${successCount}/${checkedIds.length}건만 첨부됐어요`);
+  }
 }
 
 function openCertView(id){
@@ -2310,11 +2330,14 @@ function openCertView(id){
   overlay.innerHTML = `
     <div class="modal">
       <h2>성적서 · ${escapeHtml(rec.lot)}</h2>
-      <div class="cert-gallery">
-        ${rec.certificates.map(c => `
+      <div class="cert-gallery" id="certGalleryList_${id}">
+        ${rec.certificates.map((c, idx) => `
           <div class="cert-gallery-item">
             <img src="${c.data || c.url}" alt="성적서" onclick="window.open(this.src, '_blank')">
-            <div class="cert-gallery-meta">첨부 · ${escapeHtml(c.uploadedBy || '')} · ${c.uploadedAt ? fmtDate(c.uploadedAt) : ''}</div>
+            <div class="cert-gallery-meta" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span>첨부 · ${escapeHtml(c.uploadedBy || '')} · ${c.uploadedAt ? fmtDate(c.uploadedAt) : ''}</span>
+              <button class="btn-sm btn-del" onclick="deleteCertificate('${id}', ${idx})">삭제</button>
+            </div>
           </div>`).join('')}
       </div>
       <div class="modal-actions">
@@ -2323,6 +2346,26 @@ function openCertView(id){
     </div>`;
   document.body.appendChild(overlay);
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('certViewOverlay'); });
+}
+
+async function deleteCertificate(id, idx){
+  const rec = records.find(r => r.id === id);
+  if(!rec || !rec.certificates || !rec.certificates[idx]) return;
+  if(!confirm('이 성적서를 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
+  const target = rec.certificates[idx];
+  const ok = await window.fbRemoveCertificate(id, target);
+  if(ok){
+    rec.certificates.splice(idx, 1);
+    render();
+    if(rec.certificates.length > 0){
+      openCertView(id);
+    } else {
+      closeOverlay('certViewOverlay');
+    }
+    showToast('성적서 삭제 완료');
+  } else {
+    showToast('삭제에 실패했어요');
+  }
 }
 
 // ===================== //
