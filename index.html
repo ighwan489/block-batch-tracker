@@ -2009,11 +2009,17 @@ function exportToExcel(){
 let certImageBlob = null;
 let certImageDataUrl = null;
 let certRawText = '';
+let certSelectedIds = new Set();
+let certAutoMatchedCount = 0;
+let certSearchText = '';
 
 function openCertUploadModal(){
   closeOverlay('certOverlay');
   certImageBlob = null;
   certImageDataUrl = null;
+  certSelectedIds = new Set();
+  certAutoMatchedCount = 0;
+  certSearchText = '';
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
   overlay.id = 'certOverlay';
@@ -2033,6 +2039,9 @@ function openCertUploadModal(){
       <div id="certMatchWrap" style="display:none;">
         <div class="field" style="margin-top:14px;"><label>등록자 * (전체 적용)</label><input id="cert_by" type="text" placeholder="이름" value="${escapeHtml(myName)}"></div>
         <div class="preview-summary" id="certMatchSummary"></div>
+        <div class="field" style="margin-top:8px;">
+          <input id="certSearchInput" type="text" placeholder="LOT/제품명/코드로 검색해서 직접 추가 선택" oninput="onCertSearchInput(this.value)">
+        </div>
         <div class="match-list" id="certMatchList"></div>
         <div class="err" id="cert_err">등록자 이름과 선택된 항목이 1건 이상 필요해요</div>
         <div class="modal-actions">
@@ -2133,37 +2142,82 @@ async function runCertOcr(){
   }catch(err){
     console.error('OCR error:', err);
     if(worker){ try{ await worker.terminate(); }catch(e){} }
+    certRawText = '(OCR 분석 실패 - 아래에서 직접 검색해서 선택해주세요)';
+    renderCertMatchList([]);
     document.getElementById('certProgressWrap').style.display = 'none';
-    document.getElementById('certAnalyzeWrap').style.display = 'block';
-    showToast('OCR 분석에 실패했어요 - 이미지를 다시 확인해주세요');
+    document.getElementById('certMatchWrap').style.display = 'block';
+    showToast('OCR 분석에 실패했어요 - 검색해서 직접 선택해주세요');
   }
 }
 
-function renderCertMatchList(matched){
+function renderCertMatchList(matchedRecords){
+  certSelectedIds = new Set(matchedRecords.map(r => r.id));
+  certAutoMatchedCount = matchedRecords.length;
+  certSearchText = '';
+  const si = document.getElementById('certSearchInput');
+  if(si) si.value = '';
+  renderCertSelectableList();
+}
+
+function onCertSearchInput(v){
+  certSearchText = v;
+  renderCertSelectableList();
+}
+
+function toggleCertSelect(id, checked){
+  if(checked) certSelectedIds.add(id);
+  else certSelectedIds.delete(id);
+}
+
+function renderCertSelectableList(){
   const summary = document.getElementById('certMatchSummary');
   const list = document.getElementById('certMatchList');
   const submitBtn = document.getElementById('certSubmitBtn');
+
   const debugHtml = `
     <details style="margin-top:12px;">
       <summary style="font-size:11.5px; color:var(--ink-muted); cursor:pointer; font-weight:600;">🔍 OCR이 인식한 텍스트 보기 (디버그용)</summary>
       <pre style="white-space:pre-wrap; font-size:10.5px; color:var(--ink-muted); background:#F7F8FA; padding:10px; border-radius:8px; margin-top:6px; max-height:180px; overflow-y:auto; font-family:'JetBrains Mono',monospace;">${escapeHtml(certRawText || '(인식된 텍스트 없음)')}</pre>
     </details>`;
-  if(matched.length === 0){
-    summary.innerHTML = `매칭된 등록 LOT을 찾지 못했어요`;
-    list.innerHTML = `<div class="no-match">사이트에 등록된 LOT 중 이 캡처본에서 발견된 게 없어요.<br>이미지가 흐릿하거나 아직 등록 안 된 LOT일 수 있어요.</div>${debugHtml}`;
-    if(submitBtn) submitBtn.style.display = 'none';
-    return;
+
+  const filterText = certSearchText.trim().toLowerCase();
+  let source;
+  let truncated = false;
+  if(filterText){
+    source = records.filter(r => r.lot.toLowerCase().includes(filterText) || r.product.toLowerCase().includes(filterText) || (r.code||'').toLowerCase().includes(filterText));
+  } else {
+    const matchedList = records.filter(r => certSelectedIds.has(r.id));
+    const restList = records.filter(r => !certSelectedIds.has(r.id)).sort((a,b)=> new Date(b.registeredAt) - new Date(a.registeredAt));
+    truncated = restList.length > 20;
+    source = [...matchedList, ...restList.slice(0, 20)];
+  }
+
+  const sorted = [...source].sort((a,b)=>{
+    const am = certSelectedIds.has(a.id) ? 0 : 1;
+    const bm = certSelectedIds.has(b.id) ? 0 : 1;
+    if(am !== bm) return am - bm;
+    return new Date(b.registeredAt) - new Date(a.registeredAt);
+  });
+
+  if(certAutoMatchedCount === 0){
+    summary.innerHTML = `OCR로 자동 매칭된 LOT은 없어요 · 위 검색창에서 직접 찾아 선택해주세요`;
+  } else {
+    summary.innerHTML = `OCR로 <b>${certAutoMatchedCount}</b>건 자동 매칭됐어요 · 필요하면 검색해서 더 선택/해제하세요`;
+  }
+
+  if(sorted.length === 0){
+    list.innerHTML = `<div class="no-match">${filterText ? '검색 결과가 없어요' : '등록된 LOT이 없어요'}</div>${debugHtml}`;
+  } else {
+    list.innerHTML = sorted.map(r => `
+      <div class="match-item">
+        <input type="checkbox" class="cert-chk" data-id="${r.id}" ${certSelectedIds.has(r.id) ? 'checked' : ''} onchange="toggleCertSelect('${r.id}', this.checked)">
+        <div class="m-info">
+          <div class="m-lot">${escapeHtml(r.lot)} <span class="badge ${r.status}" style="margin-left:6px;">${STATUS_ICON[r.status] || ''} ${STATUS_LABEL[r.status]}</span></div>
+          <div class="m-product">${escapeHtml(r.product)}${r.code ? ' · ' + escapeHtml(r.code) : ''}</div>
+        </div>
+      </div>`).join('') + (!filterText && truncated ? `<div class="hint" style="text-align:center;">최근 항목 20건까지만 표시 중 · 검색하면 전체에서 찾을 수 있어요</div>` : '') + debugHtml;
   }
   if(submitBtn) submitBtn.style.display = 'block';
-  summary.innerHTML = `총 <b>${matched.length}</b>건의 등록 LOT이 이 캡처본에서 발견됐어요 · 첨부할 항목을 확인하세요`;
-  list.innerHTML = matched.map(r => `
-    <div class="match-item">
-      <input type="checkbox" class="cert-chk" data-id="${r.id}" checked>
-      <div class="m-info">
-        <div class="m-lot">${escapeHtml(r.lot)} <span class="badge ${r.status}" style="margin-left:6px;">${STATUS_ICON[r.status] || ''} ${STATUS_LABEL[r.status]}</span></div>
-        <div class="m-product">${escapeHtml(r.product)}${r.code ? ' · ' + escapeHtml(r.code) : ''}</div>
-      </div>
-    </div>`).join('') + debugHtml;
 }
 
 function compressImageToDataUrl(dataUrl, maxWidth, quality){
@@ -2204,7 +2258,7 @@ async function compressCertImage(dataUrl){
 
 async function submitCertUpload(){
   const by = document.getElementById('cert_by').value.trim();
-  const checkedIds = Array.from(document.querySelectorAll('.cert-chk:checked')).map(el => el.dataset.id);
+  const checkedIds = [...certSelectedIds];
   if(!by || checkedIds.length === 0){
     document.getElementById('cert_err').style.display = 'block';
     return;
