@@ -2096,8 +2096,10 @@ async function runCertOcr(){
   document.getElementById('certAnalyzeWrap').style.display = 'none';
   document.getElementById('certProgressWrap').style.display = 'block';
   const progressEl = document.getElementById('certProgress');
+  let worker = null;
   try{
-    const result = await Tesseract.recognize(certImageDataUrl, 'eng', {
+    progressEl.textContent = '언어 데이터 불러오는 중... (처음 1회만 오래 걸려요)';
+    worker = await Tesseract.createWorker('eng+kor', 1, {
       logger: (m)=>{
         if(m.status === 'recognizing text'){
           progressEl.textContent = `텍스트 인식 중... ${Math.round((m.progress||0)*100)}%`;
@@ -2106,13 +2108,23 @@ async function runCertOcr(){
         }
       }
     });
+    await worker.setParameters({ tessedit_pageseg_mode: '6' }); // 표/블록 단위 인식에 유리한 모드
+    const result = await worker.recognize(certImageDataUrl);
+    await worker.terminate();
+    worker = null;
+
     const rawText = (result && result.data && result.data.text) ? result.data.text : '';
     certRawText = rawText;
     const normText = rawText.replace(/[\s\-_]/g, '').toUpperCase();
 
     const matched = records.filter(r => {
       const normLot = (r.lot || '').replace(/[\s\-_]/g, '').toUpperCase();
-      return normLot.length >= 4 && normText.includes(normLot);
+      if(normLot.length < 4) return false;
+      if(normText.includes(normLot)) return true;
+      // O/0 혼동 등 흔한 OCR 오인식 보정: O<->0 치환해서 한번 더 대조
+      const normLotAsZero = normLot.replace(/O/g, '0');
+      const normLotAsO = normLot.replace(/0/g, 'O');
+      return normText.includes(normLotAsZero) || normText.includes(normLotAsO);
     });
 
     renderCertMatchList(matched);
@@ -2120,6 +2132,7 @@ async function runCertOcr(){
     document.getElementById('certMatchWrap').style.display = 'block';
   }catch(err){
     console.error('OCR error:', err);
+    if(worker){ try{ await worker.terminate(); }catch(e){} }
     document.getElementById('certProgressWrap').style.display = 'none';
     document.getElementById('certAnalyzeWrap').style.display = 'block';
     showToast('OCR 분석에 실패했어요 - 이미지를 다시 확인해주세요');
