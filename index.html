@@ -16,6 +16,12 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if(window['pdfjsLib']){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -2044,9 +2050,9 @@ function openCertUploadModal(){
   overlay.innerHTML = `
     <div class="modal">
       <h2>성적서(출하승인서) 업로드</h2>
-      <div class="hint" style="margin-bottom:10px;">Win+Shift+S로 출하승인서 화면을 캡처한 뒤, 아래 영역을 클릭하고 <code>Ctrl+V</code>로 붙여넣으세요. 파일 선택도 가능해요.<br>💡 전체 문서를 그대로 캡처해주세요 (증빙 보존을 위해). OCR이 자동으로 못 맞히면 아래 검색창에서 직접 선택하시면 돼요.</div>
+      <div class="hint" style="margin-bottom:10px;">Win+Shift+S로 출하승인서 화면을 캡처한 뒤, 아래 영역을 클릭하고 <code>Ctrl+V</code>로 붙여넣으세요. 파일 선택(이미지 또는 PDF)도 가능해요.<br>💡 전체 문서를 그대로 캡처해주세요 (증빙 보존을 위해). OCR이 자동으로 못 맞히면 아래 검색창에서 직접 선택하시면 돼요.</div>
       <div class="paste-zone" id="certPasteZone" tabindex="0">📋 여기를 클릭하고 Ctrl+V로 붙여넣기<br>또는 클릭해서 파일 선택
-        <input type="file" id="certFileInput" accept="image/*" style="display:none;">
+        <input type="file" id="certFileInput" accept="image/*,.pdf,application/pdf" style="display:none;">
       </div>
       <div id="certAnalyzeWrap" style="display:none; margin-top:14px;">
         <button class="btn-cancel" style="width:100%; margin-bottom:8px;" id="certCropBtn" onclick="toggleCertCropMode()">🔍 제조번호 부분만 선택해서 인식 정확도 높이기 (선택사항)</button>
@@ -2076,8 +2082,14 @@ function openCertUploadModal(){
   document.body.appendChild(overlay);
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('certOverlay'); });
 
+  initCertPasteZoneListeners();
+  setTimeout(()=> document.getElementById('certPasteZone').focus(), 100);
+}
+
+function initCertPasteZoneListeners(){
   const zone = document.getElementById('certPasteZone');
   const fileInput = document.getElementById('certFileInput');
+  if(!zone || !fileInput) return;
 
   zone.addEventListener('click', ()=> fileInput.click());
   zone.addEventListener('paste', (e)=>{
@@ -2099,16 +2111,31 @@ function openCertUploadModal(){
   fileInput.addEventListener('change', ()=>{
     if(fileInput.files.length) loadCertImage(fileInput.files[0]);
   });
-  setTimeout(()=> zone.focus(), 100);
+}
+
+async function pdfFileToDataUrl(file){
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const page = await pdf.getPage(1); // 첫 페이지만 사용 (출하승인서는 대부분 1페이지)
+  const viewport = page.getViewport({ scale: 2.5 }); // 고해상도로 렌더링해야 OCR이 잘 됨
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return canvas.toDataURL('image/png');
 }
 
 function loadCertImage(file){
   if(!file) return;
   certCropRect = null;
   certCropArmed = false;
-  const reader = new FileReader();
-  reader.onload = (e)=>{
-    certImageDataUrl = e.target.result;
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+  const finish = (dataUrl)=>{
+    certImageDataUrl = dataUrl;
     certImageBlob = file;
     const zone = document.getElementById('certPasteZone');
     if(zone){
@@ -2125,6 +2152,24 @@ function loadCertImage(file){
     const cropHint = document.getElementById('certCropHint');
     if(cropHint) cropHint.style.display = 'none';
   };
+
+  if(isPdf){
+    if(!window['pdfjsLib']){ showToast('PDF 변환 라이브러리를 불러오지 못했어요 - 새로고침 후 다시 시도해주세요'); return; }
+    const zone = document.getElementById('certPasteZone');
+    if(zone) zone.innerHTML = '📄 PDF를 이미지로 변환하는 중...';
+    pdfFileToDataUrl(file).then(finish).catch((err)=>{
+      console.error('PDF 변환 실패:', err);
+      showToast('PDF 변환에 실패했어요 - 캡처본(이미지)으로 올려주세요');
+      if(zone){
+        zone.innerHTML = '📋 여기를 클릭하고 Ctrl+V로 붙여넣기<br>또는 클릭해서 파일 선택<input type="file" id="certFileInput" accept="image/*,.pdf,application/pdf" style="display:none;">';
+        initCertPasteZoneListeners();
+      }
+    });
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e)=> finish(e.target.result);
   reader.readAsDataURL(file);
 }
 
