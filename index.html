@@ -632,6 +632,16 @@
         <option value="test-pass">시험검사 적합</option>
         <option value="block-release">블락 해제</option>
       </select>
+      <select id="statusCodeFilterSelect">
+        <option value="">상태값 전체</option>
+        <option value="A">[A]정상</option>
+        <option value="B">[B]판정대기</option>
+        <option value="D">[D]부적합</option>
+        <option value="E">[E]유효기간경과</option>
+        <option value="F">[F]유효기간임박</option>
+        <option value="Q">[Q]Quarantine</option>
+        <option value="R">[R]Retain Sample</option>
+      </select>
       <button class="print-btn" id="openPrintView">🖨 인쇄용 요약</button>
     </div>
   </header>
@@ -667,6 +677,7 @@ let isGuestMode = false;
 let isAdminMode = false;
 let selectedIds = new Set();
 let sortOption = 'recent';
+let statusCodeFilter = '';
 
 const REASONS = ['신규배치 시험검사(출하승인 대기)','품질이상','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
 const STATUS_CODES = { A:'정상', B:'판정대기', D:'부적합', E:'유효기간경과', F:'유효기간임박', Q:'Quarantine', R:'Retain Sample' };
@@ -761,6 +772,7 @@ function initRealtimeSync(){
   if(currentFilter === 'testing') list = list.filter(r => r.status === 'testing');
   if(currentFilter === 'blocked') list = list.filter(r => r.status === 'blocked');
   if(currentFilter === 'released') list = list.filter(r => r.status === 'released');
+  if(statusCodeFilter) list = list.filter(r => r.statusCode === statusCodeFilter);
 
   if(multiLotTokens.length > 0){
     list = list.filter(r => {
@@ -805,7 +817,7 @@ function getReleasedFrom(r){
 
 function render(){
   updateMultiChip();
-  const isNarrowed = multiLotTokens.length > 0 || searchTerm.trim() || currentFilter !== 'all';
+  const isNarrowed = multiLotTokens.length > 0 || searchTerm.trim() || currentFilter !== 'all' || statusCodeFilter;
   const filteredTestingList = getFiltered().filter(r => r.status === 'testing');
   const filteredBlockedList = getFiltered().filter(r => r.status === 'blocked');
   document.getElementById('testingCount').textContent = records.filter(r => r.status === 'testing').length;
@@ -1622,6 +1634,7 @@ function renderSelectionBar(currentList){
       </div>
       <div class="actions">
         <button class="btn-sel-clear" onclick="clearSelection()">선택 해제</button>
+        <button class="btn-sel-clear" style="border-color:var(--steel); color:var(--steel-dark);" onclick="openBulkStatusCodeModal()">상태값 변경</button>
         <button class="btn-sel-delete" onclick="openBulkDeleteSelectedModal()">선택 삭제</button>
       </div>
     </div>`;
@@ -1673,6 +1686,48 @@ function openBulkDeleteSelectedModal(){
     render();
     const ok = await window.fbBulkDelete(ids);
     showToast(ok ? `${ids.length}건 삭제 완료` : '삭제됐지만 저장에 일부 실패했어요');
+  });
+}
+
+// 선택된 여러 카드의 상태값(A/B/D/E/F/Q/R)을 한 번에 지정 - 시험검사중/블락중/해제됨 상태는 안 건드림
+function openBulkStatusCodeModal(){
+  closeOverlay('bulkStatusCodeOverlay');
+  const count = selectedIds.size;
+  if(count === 0) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'bulkStatusCodeOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>선택 항목 상태값 일괄 변경</h2>
+      <p style="font-size:13px; color:var(--ink-muted); margin:0 0 14px;">선택하신 <b style="color:var(--steel-dark);">${count}건</b>의 상태값을 한 번에 바꿔요. 시험검사중·블락중·해제됨 같은 상태는 그대로 유지돼요.</p>
+      <div class="field">
+        <label>새 상태값</label>
+        <select id="bsc_code">
+          <option value="">선택 안함(비우기)</option>
+          ${STATUS_CODE_ORDER.map(c => `<option value="${c}">[${c}]${STATUS_CODES[c]}</option>`).join('')}
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeOverlay('bulkStatusCodeOverlay')">취소</button>
+        <button class="btn-submit" id="bulkStatusCodeBtn">적용</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('bulkStatusCodeOverlay'); });
+
+  document.getElementById('bulkStatusCodeBtn').addEventListener('click', async ()=>{
+    const code = document.getElementById('bsc_code').value;
+    const ids = [...selectedIds];
+    closeOverlay('bulkStatusCodeOverlay');
+    ids.forEach(id => {
+      const rec = records.find(r => r.id === id);
+      if(rec) rec.statusCode = code;
+    });
+    selectedIds.clear();
+    render();
+    const ok = await window.fbBulkUpdate(ids, { statusCode: code });
+    showToast(ok ? `${ids.length}건 상태값 변경 완료` : '변경됐지만 저장에 일부 실패했어요');
   });
 }
 
@@ -3053,6 +3108,10 @@ document.getElementById('sortSelect').addEventListener('change', (e)=>{
     const releasedTab = document.querySelector('.tab[data-filter="released"]');
     if(releasedTab) releasedTab.classList.add('active');
   }
+  render();
+});
+document.getElementById('statusCodeFilterSelect').addEventListener('change', (e)=>{
+  statusCodeFilter = e.target.value;
   render();
 });
 document.getElementById('openPrintView').addEventListener('click', openPrintView);
