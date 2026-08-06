@@ -262,6 +262,8 @@
   .stat-chip.c-testing .n{ color:#9DBBFF; }
   .stat-chip.c-blocked .n{ color:#FFD9B3; }
   .stat-chip.c-released .n{ color:#A6E4C2; }
+  .stat-chip.c-total{ background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.32); }
+  .stat-chip.c-total .n{ color:#fff; font-weight:700; }
 
   .search-row{ margin-top:14px; position:relative; }
   .search-row input{
@@ -591,6 +593,7 @@
       <div class="stat-chip c-testing">시험검사중 <span class="n" id="testingCount">-</span></div>
       <div class="stat-chip c-blocked">블락중 <span class="n" id="activeCount">-</span></div>
       <div class="stat-chip c-released">해제됨 <span class="n" id="releasedCount">-</span></div>
+      <div class="stat-chip c-total">누적 <span class="n" id="totalCount">-</span></div>
     </div>
     <div class="search-row">
       <span class="search-icon">🔍</span>
@@ -775,6 +778,7 @@ function render(){
   document.getElementById('testingCount').textContent = records.filter(r => r.status === 'testing').length;
   document.getElementById('activeCount').textContent = records.filter(r => r.status === 'blocked').length;
   document.getElementById('releasedCount').textContent = records.filter(r => r.status === 'released').length;
+  document.getElementById('totalCount').textContent = records.length;
 
   const bar = document.getElementById('actionBar');
   let rows = '';
@@ -2115,7 +2119,10 @@ function initCertPasteZoneListeners(){
   const fileInput = document.getElementById('certFileInput');
   if(!zone || !fileInput) return;
 
-  zone.addEventListener('click', ()=> fileInput.click());
+  zone.addEventListener('click', ()=>{
+    if(certCropArmed || certImageDataUrl) return; // 크롭 중이거나 이미지가 이미 있으면 파일선택 재오픈 방지
+    fileInput.click();
+  });
   zone.addEventListener('paste', (e)=>{
     const items = e.clipboardData ? e.clipboardData.items : [];
     for(const item of items){
@@ -2161,8 +2168,7 @@ function analyzeCertText(){
     if(normLot.length < 4) return false;
     if(normText.includes(normLot)) return true;
     const canonLot = ocrCanonical(normLot);
-    if(canonText.includes(canonLot)) return true;
-    return fuzzyIncludes(canonText, canonLot, 1);
+    return canonText.includes(canonLot);
   });
 
   renderCertMatchList(matched);
@@ -2463,9 +2469,7 @@ async function runCertOcr(){
       if(normText.includes(normLot)) return true;
       const canonLot = ocrCanonical(normLot);
       // 흔한 OCR 오인식 문자쌍(O/0, S/5, I·L/1, B/8, Z/2, G/6 등)을 대표 문자로 통일해서 재대조
-      if(canonText.includes(canonLot)) return true;
-      // 문자 치환뿐 아니라 삽입/삭제(글자 하나 더 끼거나 빠짐) 오류까지 편집거리로 보정 (최대 1글자 차이 허용)
-      return fuzzyIncludes(canonText, canonLot, 1);
+      return canonText.includes(canonLot);
     });
 
     renderCertMatchList(matched);
@@ -2551,9 +2555,6 @@ function renderCertSelectableList(){
       if(certCanonText && certCanonText.includes(dbgCanonLot)){
         dbgLabel = '✅ 정확히 포함됨';
         dbgColor = '#157347';
-      } else if(certCanonText && fuzzyIncludes(certCanonText, dbgCanonLot, 1)){
-        dbgLabel = '🟡 유사 매칭 (1글자 차이)';
-        dbgColor = '#B4530A';
       }
       return `
       <div class="match-item">
@@ -2706,6 +2707,69 @@ function openCertImageFull(id, idx){
   }
 }
 
+// 이메일에서 복사한 표가 셀마다 줄바꿈으로 흩어진 경우, 짧은 셀들의 연속 구간을 찾아 표로 재구성 (표시 전용, 매칭용 원본 텍스트는 건드리지 않음)
+function tidyCertText(raw){
+  try{
+    const blocks = raw.split(/\n\s*\n+/).map(b => b.trim()).filter(b => b.length > 0);
+    const isCellLike = (b) => b.length > 0 && b.length <= 30
+      && !/[.!?]\s*$/.test(b)
+      && !/(습니다|니다|드립니다|바랍니다|감사합니다|드림)\s*$/.test(b)
+      && b.split(/\s+/).length <= 4;
+
+    let bestStart = -1, bestLen = 0, curStart = -1;
+    for(let i = 0; i <= blocks.length; i++){
+      const ok = i < blocks.length && isCellLike(blocks[i]);
+      if(ok){
+        if(curStart === -1) curStart = i;
+      } else {
+        if(curStart !== -1){
+          const len = i - curStart;
+          if(len > bestLen){ bestLen = len; bestStart = curStart; }
+          curStart = -1;
+        }
+      }
+    }
+    if(bestLen < 6) return null; // 표로 보기엔 셀 수가 너무 적음
+
+    let cols = null;
+    for(const c of [6, 5, 4, 7, 3, 8]){
+      if(bestLen % c === 0 && bestLen / c >= 2){ cols = c; break; }
+    }
+    if(!cols) return null;
+
+    const cells = blocks.slice(bestStart, bestStart + bestLen);
+    const rows = [];
+    for(let i = 0; i < cells.length; i += cols) rows.push(cells.slice(i, i + cols));
+
+    return {
+      before: blocks.slice(0, bestStart).join('\n\n'),
+      rows,
+      after: blocks.slice(bestStart + bestLen).join('\n\n')
+    };
+  }catch(e){ return null; }
+}
+
+// tidyCertText 결과를 HTML(표+앞뒤 문단)로 렌더링. 재구성 실패 시 원본 텍스트를 그대로 pre로 보여줌
+function renderCertTextHtml(rawText, opts){
+  opts = opts || {};
+  const preStyle = opts.preStyle || "white-space:pre-wrap; font-size:12px; padding:12px; margin:0; background:#FBFCFD; max-height:220px; overflow-y:auto; font-family:'JetBrains Mono',monospace;";
+  const tidy = tidyCertText(rawText);
+  if(!tidy){
+    return `<pre style="${preStyle}">${escapeHtml(rawText)}</pre>`;
+  }
+  const [headerRow, ...dataRows] = tidy.rows;
+  const tableHtml = `
+    <table style="width:100%; border-collapse:collapse; font-size:12px; margin:10px 0;">
+      <thead><tr>${headerRow.map(h => `<th style="border:1px solid var(--line); background:#EAF0F5; padding:6px 8px; text-align:left;">${escapeHtml(h)}</th>`).join('')}</tr></thead>
+      <tbody>${dataRows.map(row => `<tr>${row.map(v => `<td style="border:1px solid var(--line); padding:6px 8px;">${escapeHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>`;
+  return `<div style="padding:12px; background:#FBFCFD; font-size:12.5px; line-height:1.6;">
+    ${tidy.before ? `<div style="white-space:pre-wrap; margin-bottom:4px;">${escapeHtml(tidy.before)}</div>` : ''}
+    ${tableHtml}
+    ${tidy.after ? `<div style="white-space:pre-wrap; margin-top:4px;">${escapeHtml(tidy.after)}</div>` : ''}
+  </div>`;
+}
+
 function printCertificate(id, idx){
   const rec = records.find(r => r.id === id);
   if(!rec || !rec.certificates || !rec.certificates[idx]) return;
@@ -2713,7 +2777,7 @@ function printCertificate(id, idx){
   const win = window.open('', '_blank');
   if(!win){ showToast('팝업이 차단됐어요 - 팝업 허용 후 다시 시도해주세요'); return; }
   const bodyHtml = c.text
-    ? `<div style="text-align:left; max-width:720px; margin:0 auto; padding:18px 22px; border:1px solid #D7DEE5; border-radius:10px; background:#FBFCFD;"><pre style="white-space:pre-wrap; word-break:break-word; font-size:13.5px; line-height:1.9; font-family:'Malgun Gothic',sans-serif; margin:0;">${escapeHtml(c.text)}</pre></div>`
+    ? renderCertTextHtml(c.text, { preStyle: "text-align:left; white-space:pre-wrap; font-size:13px; max-width:700px; margin:0 auto; font-family:'Malgun Gothic',monospace;" })
     : `<img src="${c.data || c.url}" alt="성적서">`;
   win.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
     <title>성적서 인쇄 - ${escapeHtml(rec.lot)}</title>
@@ -2743,7 +2807,7 @@ function openCertView(id){
         ${rec.certificates.map((c, idx) => `
           <div class="cert-gallery-item">
             ${c.text
-              ? `<pre style="white-space:pre-wrap; font-size:12.5px; line-height:1.7; padding:14px; margin:0; background:#FBFCFD; max-height:260px; overflow-y:auto; font-family:'Malgun Gothic',sans-serif;">${escapeHtml(c.text)}</pre>`
+              ? renderCertTextHtml(c.text)
               : `<img src="${c.data || c.url}" alt="성적서" onclick="openCertImageFull('${id}', ${idx})">`}
             <div class="cert-gallery-meta" style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
               <span>${c.text ? '📧 텍스트 첨부' : '🖼 이미지 첨부'} · ${escapeHtml(c.uploadedBy || '')} · ${c.uploadedAt ? fmtDate(c.uploadedAt) : ''}</span>
