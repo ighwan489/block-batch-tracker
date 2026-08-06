@@ -2119,7 +2119,10 @@ function initCertPasteZoneListeners(){
   const fileInput = document.getElementById('certFileInput');
   if(!zone || !fileInput) return;
 
-  zone.addEventListener('click', ()=> fileInput.click());
+  zone.addEventListener('click', ()=>{
+    if(certCropArmed || certImageDataUrl) return; // 크롭 중이거나 이미지가 이미 있으면 파일선택 재오픈 방지
+    fileInput.click();
+  });
   zone.addEventListener('paste', (e)=>{
     const items = e.clipboardData ? e.clipboardData.items : [];
     for(const item of items){
