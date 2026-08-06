@@ -2761,8 +2761,8 @@ function renderCertTextHtml(rawText, opts){
   const [headerRow, ...dataRows] = tidy.rows;
   const tableHtml = `
     <table style="width:100%; border-collapse:collapse; font-size:12px; margin:10px 0;">
-      <thead><tr>${headerRow.map(h => `<th style="border:1px solid var(--line); background:#EAF0F5; padding:6px 8px; text-align:left;">${escapeHtml(h)}</th>`).join('')}</tr></thead>
-      <tbody>${dataRows.map(row => `<tr>${row.map(v => `<td style="border:1px solid var(--line); padding:6px 8px;">${escapeHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody>
+      <thead><tr>${headerRow.map(h => `<th style="border:1px solid #D7DEE5; background:#EAF0F5; padding:6px 8px; text-align:left;">${escapeHtml(h)}</th>`).join('')}</tr></thead>
+      <tbody>${dataRows.map(row => `<tr>${row.map(v => `<td style="border:1px solid #D7DEE5; padding:6px 8px;">${escapeHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody>
     </table>`;
   return `<div style="padding:12px; background:#FBFCFD; font-size:12.5px; line-height:1.6;">
     ${tidy.before ? `<div style="white-space:pre-wrap; margin-bottom:4px;">${escapeHtml(tidy.before)}</div>` : ''}
