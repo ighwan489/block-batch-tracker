@@ -2470,9 +2470,7 @@ async function runCertOcr(){
       if(normText.includes(normLot)) return true;
       const canonLot = ocrCanonical(normLot);
       // 흔한 OCR 오인식 문자쌍(O/0, S/5, I·L/1, B/8, Z/2, G/6 등)을 대표 문자로 통일해서 재대조
-      if(canonText.includes(canonLot)) return true;
-      // 문자 치환뿐 아니라 삽입/삭제(글자 하나 더 끼거나 빠짐) 오류까지 편집거리로 보정 (최대 1글자 차이 허용)
-      return fuzzyIncludes(canonText, canonLot, 1);
+      return canonText.includes(canonLot);
     });
 
     renderCertMatchList(matched);
@@ -2558,9 +2556,6 @@ function renderCertSelectableList(){
       if(certCanonText && certCanonText.includes(dbgCanonLot)){
         dbgLabel = '✅ 정확히 포함됨';
         dbgColor = '#157347';
-      } else if(certUploadMode !== 'text' && certCanonText && fuzzyIncludes(certCanonText, dbgCanonLot, 1)){
-        dbgLabel = '🟡 유사 매칭 (1글자 차이)';
-        dbgColor = '#B4530A';
       }
       return `
       <div class="match-item">
