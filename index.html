@@ -548,6 +548,10 @@
     letter-spacing:.02em; margin:0 0 16px; color:var(--steel-dark);
   }
   .field{ margin-bottom:13px; }
+  .field-group{ background:#F7F8FA; border:1px solid var(--line); border-radius:10px; padding:12px 12px 2px; margin-bottom:13px; }
+  .field-group-title{ font-size:11.5px; font-weight:700; color:var(--ink-muted); margin-bottom:10px; }
+  .field-row-2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .field-group .field{ margin-bottom:10px; }
   .field label{ display:block; font-size:12px; font-weight:600; color:var(--ink-muted); margin-bottom:5px; }
   .field input, .field select, .field textarea{
     width:100%; padding:10px 12px; border-radius:9px; border:1px solid var(--line);
@@ -876,6 +880,11 @@ function render(){
         ${elapsedBadgeHtml(r)}
         <span class="reason-tag">${escapeHtml(r.reason)}</span>
         ${r.memo ? `<div class="memo">${escapeHtml(r.memo)}</div>` : ''}
+        ${status === 'testing' && (r.receivedAt || r.ibdNo || r.expectedCompleteAt) ? `<div style="font-size:11.5px; color:var(--ink-muted); margin-top:6px;">${[
+          r.receivedAt ? `입고일${fmtDate(r.receivedAt).split(' ')[0]}` : '',
+          r.ibdNo ? `IBD${escapeHtml(r.ibdNo)}` : '',
+          r.expectedCompleteAt ? `완료일${fmtDate(r.expectedCompleteAt).split(' ')[0]}` : ''
+        ].filter(Boolean).join(' / ')}</div>` : ''}
         <div class="meta-row">
           <span>등록 <b>${escapeHtml(r.registeredBy)}</b></span>
           <span>${fmtDate(r.registeredAt)}</span>
@@ -1056,10 +1065,17 @@ function openAddModal(){
       <div class="field"><label id="f_reason_label">블락 사유 *</label>
         <select id="f_reason">${REASONS.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
       </div>
-      <div class="field" id="f_testDateWrap" style="display:none;">
-        <label>검사의뢰일 (선택)</label>
-        <input id="f_testRequestedAt" type="date">
-        <div class="hint">비워두면 등록일자로 자동 설정돼요. 달력 아이콘으로 선택하거나 직접 입력(연-월-일)할 수 있어요.</div>
+      <div class="field-group" id="f_testDateWrap" style="display:none;">
+        <div class="field-group-title">📅 입고·검사 정보 (선택)</div>
+        <div class="field-row-2">
+          <div class="field"><label>검사의뢰일</label><input id="f_testRequestedAt" type="date"></div>
+          <div class="field"><label>입고일</label><input id="f_receivedAt" type="date"></div>
+        </div>
+        <div class="field-row-2">
+          <div class="field"><label>IBD 번호</label><input id="f_ibdNo" type="text" placeholder="예: IBD181674074"></div>
+          <div class="field"><label>완료 예정일</label><input id="f_expectedCompleteAt" type="date"></div>
+        </div>
+        <div class="hint" style="margin-top:-2px;">검사의뢰일을 비워두면 등록일자로 자동 설정돼요.</div>
       </div>
       <div class="field"><label>상세 메모</label><textarea id="f_memo" placeholder="상세 내용 (선택)"></textarea></div>
       <div class="field"><label>상태값 (선택)</label>
@@ -1089,9 +1105,14 @@ function openAddModal(){
       if(reasonSelect.dataset.userTouched !== 'true'){
         reasonSelect.value = isTesting ? '신규배치 시험검사(출하승인 대기)' : '품질이상';
       }
+      const statusSelect = overlay.querySelector('#f_statusCode');
+      if(statusSelect.dataset.userTouched !== 'true'){
+        statusSelect.value = isTesting ? 'Q' : '';
+      }
     });
   });
   overlay.querySelector('#f_reason').addEventListener('change', (e)=>{ e.target.dataset.userTouched = 'true'; });
+  overlay.querySelector('#f_statusCode').addEventListener('change', (e)=>{ e.target.dataset.userTouched = 'true'; });
 }
 
 async function submitAdd(){
@@ -1103,13 +1124,16 @@ async function submitAdd(){
   const statusCode = document.getElementById('f_statusCode').value;
   const by = document.getElementById('f_by').value.trim();
   const testRequestedAtRaw = document.getElementById('f_testRequestedAt').value; // YYYY-MM-DD or ''
+  const receivedAtRaw = document.getElementById('f_receivedAt').value;
+  const ibdNo = document.getElementById('f_ibdNo').value.trim();
+  const expectedCompleteAtRaw = document.getElementById('f_expectedCompleteAt').value;
 
   if(!lot || !product || !by){
     document.getElementById('f_err').style.display = 'block';
     return;
   }
 
-  const data = { code, lot, product, reason, memo, statusCode, by, testRequestedAtRaw };
+  const data = { code, lot, product, reason, memo, statusCode, by, testRequestedAtRaw, receivedAtRaw, ibdNo, expectedCompleteAtRaw };
   const dup = records.find(r => r.lot.trim().toLowerCase() === lot.toLowerCase());
   if(dup){
     showAppConfirm(
@@ -1123,8 +1147,11 @@ async function submitAdd(){
 }
 
 async function doAddRecord(data){
-  const { code, lot, product, reason, memo, statusCode, by, testRequestedAtRaw } = data;
-  const testRequestedAt = (addStatus === 'testing' && testRequestedAtRaw) ? new Date(testRequestedAtRaw + 'T00:00:00').toISOString() : null;
+  const { code, lot, product, reason, memo, statusCode, by, testRequestedAtRaw, receivedAtRaw, ibdNo, expectedCompleteAtRaw } = data;
+  const isTesting = addStatus === 'testing';
+  const testRequestedAt = (isTesting && testRequestedAtRaw) ? new Date(testRequestedAtRaw + 'T00:00:00').toISOString() : null;
+  const receivedAt = (isTesting && receivedAtRaw) ? new Date(receivedAtRaw + 'T00:00:00').toISOString() : null;
+  const expectedCompleteAt = (isTesting && expectedCompleteAtRaw) ? new Date(expectedCompleteAtRaw + 'T00:00:00').toISOString() : null;
   const nowIso = new Date().toISOString();
 
   const rec = {
@@ -1135,6 +1162,9 @@ async function doAddRecord(data){
     registeredAt: nowIso,
     status: addStatus,
     testRequestedAt,
+    receivedAt,
+    ibdNo: isTesting ? (ibdNo || '') : '',
+    expectedCompleteAt,
     releasedBy: null, releasedAt: null, releaseMemo: null,
     testFailBy: null, testFailAt: null, testFailMemo: null,
     history: [makeHistoryEntry(addStatus, by, reason || memo, nowIso)]
@@ -1164,10 +1194,17 @@ function openEdit(id){
         <select id="e_reason">${((rec.reason && !REASONS.includes(rec.reason)) ? [rec.reason, ...REASONS] : REASONS).map(r=>`<option value="${escapeHtml(r)}" ${r===rec.reason?'selected':''}>${escapeHtml(r)}${!REASONS.includes(r) ? ' (기존 값)' : ''}</option>`).join('')}</select>
       </div>
       ${rec.status === 'testing' ? `
-      <div class="field">
-        <label>검사의뢰일 (선택)</label>
-        <input id="e_testRequestedAt" type="date" value="${rec.testRequestedAt ? rec.testRequestedAt.slice(0,10) : ''}">
-        <div class="hint">비워두면 등록일자로 자동 설정돼요.</div>
+      <div class="field-group">
+        <div class="field-group-title">📅 입고·검사 정보 (선택)</div>
+        <div class="field-row-2">
+          <div class="field"><label>검사의뢰일</label><input id="e_testRequestedAt" type="date" value="${rec.testRequestedAt ? rec.testRequestedAt.slice(0,10) : ''}"></div>
+          <div class="field"><label>입고일</label><input id="e_receivedAt" type="date" value="${rec.receivedAt ? rec.receivedAt.slice(0,10) : ''}"></div>
+        </div>
+        <div class="field-row-2">
+          <div class="field"><label>IBD 번호</label><input id="e_ibdNo" type="text" value="${escapeHtml(rec.ibdNo || '')}" placeholder="예: IBD181674074"></div>
+          <div class="field"><label>완료 예정일</label><input id="e_expectedCompleteAt" type="date" value="${rec.expectedCompleteAt ? rec.expectedCompleteAt.slice(0,10) : ''}"></div>
+        </div>
+        <div class="hint" style="margin-top:-2px;">검사의뢰일을 비워두면 등록일자로 자동 설정돼요.</div>
       </div>` : ''}
       <div class="field"><label>상세 메모</label><textarea id="e_memo">${escapeHtml(rec.memo || '')}</textarea></div>
       <div class="field"><label>상태값 (선택)</label>
@@ -1206,6 +1243,14 @@ async function submitEdit(id){
     const testDateEl = document.getElementById('e_testRequestedAt');
     const raw = testDateEl ? testDateEl.value : '';
     patch.testRequestedAt = raw ? new Date(raw + 'T00:00:00').toISOString() : null;
+
+    const receivedRaw = document.getElementById('e_receivedAt') ? document.getElementById('e_receivedAt').value : '';
+    patch.receivedAt = receivedRaw ? new Date(receivedRaw + 'T00:00:00').toISOString() : null;
+
+    patch.ibdNo = document.getElementById('e_ibdNo') ? document.getElementById('e_ibdNo').value.trim() : '';
+
+    const expectedRaw = document.getElementById('e_expectedCompleteAt') ? document.getElementById('e_expectedCompleteAt').value : '';
+    patch.expectedCompleteAt = expectedRaw ? new Date(expectedRaw + 'T00:00:00').toISOString() : null;
   }
 
   if(lotChanged){
