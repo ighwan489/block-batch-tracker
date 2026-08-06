@@ -2710,7 +2710,8 @@ function openCertImageFull(id, idx){
 // 이메일에서 복사한 표가 셀마다 줄바꿈으로 흩어진 경우, 짧은 셀들의 연속 구간을 찾아 표로 재구성 (표시 전용, 매칭용 원본 텍스트는 건드리지 않음)
 function tidyCertText(raw){
   try{
-    const blocks = raw.split(/\n\s*\n+/).map(b => b.trim()).filter(b => b.length > 0);
+    const lines = raw.split(/\r?\n/).map(l => l.trim());
+    const blocks = lines.filter(l => l.length > 0); // 빈 줄 없이 줄바꿈 한 번씩만 쓰는 실제 이메일 포맷 대응 (줄 하나 = 셀 하나)
     const isCellLike = (b) => b.length > 0 && b.length <= 30
       && !/[.!?]\s*$/.test(b)
       && !/(습니다|니다|드립니다|바랍니다|감사합니다|드림)\s*$/.test(b)
@@ -2742,9 +2743,9 @@ function tidyCertText(raw){
     for(let i = 0; i < cells.length; i += cols) rows.push(cells.slice(i, i + cols));
 
     return {
-      before: blocks.slice(0, bestStart).join('\n\n'),
+      before: blocks.slice(0, bestStart).join('\n'),
       rows,
-      after: blocks.slice(bestStart + bestLen).join('\n\n')
+      after: blocks.slice(bestStart + bestLen).join('\n')
     };
   }catch(e){ return null; }
 }
