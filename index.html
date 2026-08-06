@@ -468,44 +468,49 @@
   .timeline-empty{ text-align:center; padding:24px; color:var(--ink-muted); font-size:13px; }
 
   .fab{
-    position:fixed; right:20px; bottom:20px; z-index:30;
+    position:fixed; right:20px; bottom:20px; z-index:31;
     width:56px; height:56px; border-radius:50%; border:none;
     background:var(--amber); color:#fff; font-size:26px; font-weight:700;
     box-shadow:0 4px 14px rgba(180,83,10,.4); cursor:pointer;
     display:flex; align-items:center; justify-content:center;
     max-width:720px; margin:0 auto;
+    transition:transform .2s ease;
   }
-  .fab-sub{
-    position:fixed; right:20px; bottom:88px; z-index:30;
-    width:44px; height:44px; border-radius:50%; border:none;
-    background:var(--steel); color:#fff; font-size:18px;
-    box-shadow:0 4px 14px rgba(44,74,102,.35); cursor:pointer;
+  .fab-item{
+    position:fixed; right:25px; bottom:20px; z-index:30;
+    width:46px; height:46px; border-radius:50%; border:none;
+    color:#fff; font-size:19px;
+    box-shadow:0 4px 12px rgba(0,0,0,.22); cursor:pointer;
     display:flex; align-items:center; justify-content:center;
     max-width:720px; margin:0 auto;
+    opacity:0; pointer-events:none; transform:scale(.4);
+    transition:transform .2s ease, opacity .16s ease, bottom .2s ease;
   }
-  .fab-sub2{
-    position:fixed; right:20px; bottom:156px; z-index:30;
-    width:44px; height:44px; border-radius:50%; border:none;
-    background:var(--green); color:#fff; font-size:18px;
-    box-shadow:0 4px 14px rgba(21,115,71,.35); cursor:pointer;
-    display:flex; align-items:center; justify-content:center;
-    max-width:720px; margin:0 auto;
-  }
-  .fab-sub3{
-    position:fixed; right:20px; bottom:224px; z-index:30;
-    width:44px; height:44px; border-radius:50%; border:none;
-    background:var(--blue); color:#fff; font-size:18px;
-    box-shadow:0 4px 14px rgba(29,78,216,.35); cursor:pointer;
-    display:flex; align-items:center; justify-content:center;
-    max-width:720px; margin:0 auto;
-  }
-  .fab-wrap{ position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center; pointer-events:none; }
+  .fab-item.item-add{ background:var(--steel); }
+  .fab-item.item-bulk{ background:#2F8F5B; }
+  .fab-item.item-excel{ background:#1D6FEB; }
+  .fab-item.item-cert{ background:#7C3AED; }
+  .fab-wrap{ position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center; pointer-events:none; z-index:29; }
   .fab-wrap .fab-inner{ position:relative; width:100%; max-width:720px; height:0; pointer-events:none; }
-  .fab-wrap button{ pointer-events:auto; position:absolute; right:20px; }
-  .fab-wrap .fab{ bottom:20px; }
-  .fab-wrap .fab-sub{ bottom:88px; }
-  .fab-wrap .fab-sub2{ bottom:156px; }
-  .fab-wrap .fab-sub3{ bottom:224px; }
+  .fab-wrap button{ pointer-events:auto; }
+  .fab-wrap.open .fab{ transform:rotate(45deg); }
+  .fab-wrap.open .fab-item{ opacity:1; pointer-events:auto; transform:scale(1); }
+  .fab-wrap.open .fab-item.item-add{ bottom:84px; }
+  .fab-wrap.open .fab-item.item-bulk{ bottom:144px; }
+  .fab-wrap.open .fab-item.item-excel{ bottom:204px; }
+  .fab-wrap.open .fab-item.item-cert{ bottom:264px; }
+  .fab-label{
+    position:fixed; right:78px; z-index:30;
+    background:var(--steel-dark); color:#fff; font-size:11.5px; font-weight:600;
+    padding:5px 10px; border-radius:7px; white-space:nowrap;
+    opacity:0; pointer-events:none; transition:opacity .16s ease;
+    max-width:720px; margin:0 auto;
+  }
+  .fab-wrap.open .fab-label{ opacity:1; }
+  .fab-label.label-add{ bottom:96px; }
+  .fab-label.label-bulk{ bottom:156px; }
+  .fab-label.label-excel{ bottom:216px; }
+  .fab-label.label-cert{ bottom:276px; }
 
   .modal-tabs{ display:flex; gap:6px; margin-bottom:16px; background:#F1F3F5; border-radius:10px; padding:4px; }
   .modal-tab{ flex:1; text-align:center; padding:8px; border-radius:7px; font-size:12.5px; font-weight:600; color:var(--ink-muted); cursor:pointer; }
@@ -638,11 +643,16 @@
   </div>
 </div>
 
-<div class="fab-wrap"><div class="fab-inner">
-  <button class="fab-sub3" id="openCertUpload" title="성적서(출하승인서) 업로드">🧾</button>
-  <button class="fab-sub2" id="exportExcel" title="현재 목록 엑셀 다운로드">⬇</button>
-  <button class="fab-sub" id="openBulk" title="여러 건 한번에 업로드">📥</button>
-  <button class="fab" id="openAdd" title="새 항목 등록">+</button>
+<div class="fab-wrap" id="fabWrap"><div class="fab-inner">
+  <span class="fab-label label-cert" id="fabLabelCert">성적서 업로드</span>
+  <button class="fab-item item-cert" id="openCertUpload" title="성적서(출하승인서) 업로드">🧾</button>
+  <span class="fab-label label-excel" id="fabLabelExcel">엑셀 다운로드</span>
+  <button class="fab-item item-excel" id="exportExcel" title="현재 목록 엑셀 다운로드">📊</button>
+  <span class="fab-label label-bulk" id="fabLabelBulk">일괄 등록</span>
+  <button class="fab-item item-bulk" id="openBulk" title="여러 건 한번에 업로드">📥</button>
+  <span class="fab-label label-add" id="fabLabelAdd">개별 등록</span>
+  <button class="fab-item item-add" id="openAdd" title="새 항목 등록">📝</button>
+  <button class="fab" id="fabToggle" title="메뉴 열기/닫기">+</button>
 </div></div>
 
 <div class="toast" id="toast"></div>
@@ -846,11 +856,13 @@ function render(){
               <div class="product">${escapeHtml(r.product)}</div>
             </div>
           </div>
-          <span class="badge ${status}">${STATUS_ICON[status] || ''} ${STATUS_LABEL[status]}</span>
+          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+            <span class="badge ${status}">${STATUS_ICON[status] || ''} ${STATUS_LABEL[status]}</span>
+            ${r.statusCode && STATUS_CODES[r.statusCode] ? `<span class="status-badge code-${r.statusCode}" style="margin:0;">${escapeHtml(statusCodeLabel(r.statusCode))}</span>` : ''}
+          </div>
         </div>
         ${elapsedBadgeHtml(r)}
         <span class="reason-tag">${escapeHtml(r.reason)}</span>
-        ${r.statusCode && STATUS_CODES[r.statusCode] ? `<span class="status-badge code-${r.statusCode}">${escapeHtml(statusCodeLabel(r.statusCode))}</span>` : ''}
         ${r.memo ? `<div class="memo">${escapeHtml(r.memo)}</div>` : ''}
         <div class="meta-row">
           <span>등록 <b>${escapeHtml(r.registeredBy)}</b></span>
@@ -2900,11 +2912,24 @@ async function deleteCertificate(id, idx){
 
 // ===================== //
 
-document.getElementById('openAdd').addEventListener('click', openAddModal);
-document.getElementById('openBulk').addEventListener('click', openBulkModal);
-document.getElementById('openCertUpload').addEventListener('click', openCertUploadModal);
+function toggleFabMenu(forceClose){
+  const wrap = document.getElementById('fabWrap');
+  if(forceClose === true){ wrap.classList.remove('open'); return; }
+  wrap.classList.toggle('open');
+}
+
+function closeFabMenu(){ toggleFabMenu(true); }
+
+document.getElementById('fabToggle').addEventListener('click', ()=> toggleFabMenu());
+document.addEventListener('click', (e)=>{
+  const wrap = document.getElementById('fabWrap');
+  if(wrap.classList.contains('open') && !wrap.contains(e.target)) wrap.classList.remove('open');
+});
+document.getElementById('openAdd').addEventListener('click', ()=>{ closeFabMenu(); openAddModal(); });
+document.getElementById('openBulk').addEventListener('click', ()=>{ closeFabMenu(); openBulkModal(); });
+document.getElementById('openCertUpload').addEventListener('click', ()=>{ closeFabMenu(); openCertUploadModal(); });
 document.getElementById('openMultiSearch').addEventListener('click', openMultiSearchModal);
-document.getElementById('exportExcel').addEventListener('click', exportToExcel);
+document.getElementById('exportExcel').addEventListener('click', ()=>{ closeFabMenu(); exportToExcel(); });
 document.getElementById('logoutBtn').addEventListener('click', ()=>{
   showAppConfirm('로그아웃 할까요?', '로그아웃', async ()=>{ await window.fbLogout(); });
 });
