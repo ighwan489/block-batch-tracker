@@ -2160,13 +2160,13 @@ function analyzeCertText(){
   const canonText = ocrCanonical(normText);
   certCanonText = canonText;
 
+  // 텍스트 모드는 복사·붙여넣기라 오인식이 없으므로 유사매칭(편집거리)은 적용하지 않음 - 정확히 일치하는 것만 매칭
   const matched = records.filter(r => {
     const normLot = (r.lot || '').replace(/[\s\-_]/g, '').toUpperCase();
     if(normLot.length < 4) return false;
     if(normText.includes(normLot)) return true;
     const canonLot = ocrCanonical(normLot);
-    if(canonText.includes(canonLot)) return true;
-    return fuzzyIncludes(canonText, canonLot, 1);
+    return canonText.includes(canonLot);
   });
 
   renderCertMatchList(matched);
@@ -2555,7 +2555,7 @@ function renderCertSelectableList(){
       if(certCanonText && certCanonText.includes(dbgCanonLot)){
         dbgLabel = '✅ 정확히 포함됨';
         dbgColor = '#157347';
-      } else if(certCanonText && fuzzyIncludes(certCanonText, dbgCanonLot, 1)){
+      } else if(certUploadMode !== 'text' && certCanonText && fuzzyIncludes(certCanonText, dbgCanonLot, 1)){
         dbgLabel = '🟡 유사 매칭 (1글자 차이)';
         dbgColor = '#B4530A';
       }
