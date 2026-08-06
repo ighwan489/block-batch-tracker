@@ -1866,7 +1866,7 @@ function parseDelimitedText(text){
   return dataLines.map(line=>{
     const cols = line.split('\t').length > 1 ? line.split('\t') : line.split(',');
     const c = cols.map(x=>(x||'').trim());
-    return normalizeRow(c[0], c[1], c[2], c[3], c[4], c[5]);
+    return normalizeRow(c);
   });
 }
 
@@ -1889,7 +1889,7 @@ function parseFile(file){
           const rows = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' });
           let data = rows.filter(r => r.some(c => String(c).trim() !== ''));
           if(data.length && looksLikeHeader(data[0].map(String))) data = data.slice(1);
-          resolve(data.map(r => normalizeRow(r[0], r[1], r[2], r[3], r[4], r[5])));
+          resolve(data.map(r => normalizeRow(r)));
         }catch(err){ showToast('엑셀 파싱 실패 - 파일 형식을 확인해주세요'); resolve([]); }
       };
       reader.readAsArrayBuffer(file);
@@ -1897,15 +1897,26 @@ function parseFile(file){
   });
 }
 
-function normalizeRow(code, lot, product, reason, memo, statusCode){
-  code = (code ?? '').toString().trim();
-  lot = (lot ?? '').toString().trim();
-  product = (product ?? '').toString().trim();
-  reason = (reason ?? '').toString().trim() || '기타';
-  memo = (memo ?? '').toString().trim();
-  let statusRaw = (statusCode ?? '').toString().trim().toUpperCase();
-  statusRaw = statusRaw.replace(/^\[|\]$/g, ''); // "[A]" 형태로 붙여넣어도 대괄호 제거하고 인식
-  statusCode = STATUS_CODES[statusRaw] ? statusRaw : '';
+function normalizeStatusCode(raw){
+  const s = (raw ?? '').toString().trim().toUpperCase().replace(/^\[|\]$/g, '');
+  return STATUS_CODES[s] ? s : '';
+}
+
+function normalizeRow(cols){
+  cols = cols || [];
+  const code = (cols[0] ?? '').toString().trim();
+  const lot = (cols[1] ?? '').toString().trim();
+  const product = (cols[2] ?? '').toString().trim();
+  const reason = (cols[3] ?? '').toString().trim() || '기타';
+  let memoRaw = (cols[4] ?? '').toString().trim();
+  let statusRaw = (cols[5] ?? '').toString().trim();
+  // 상태값 칸(6번째)이 비어있고, 메모 칸(5번째)에 유효한 상태코드가 들어온 경우 - 메모 생략하고 상태값 넣은 걸로 간주
+  if(!statusRaw && normalizeStatusCode(memoRaw)){
+    statusRaw = memoRaw;
+    memoRaw = '';
+  }
+  const memo = memoRaw;
+  const statusCode = normalizeStatusCode(statusRaw);
   const valid = !!lot && !!product;
   return { code, lot, product, reason, memo, statusCode, valid, include: valid };
 }
