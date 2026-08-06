@@ -880,11 +880,7 @@ function render(){
         ${elapsedBadgeHtml(r)}
         <span class="reason-tag">${escapeHtml(r.reason)}</span>
         ${r.memo ? `<div class="memo">${escapeHtml(r.memo)}</div>` : ''}
-        ${status === 'testing' && (r.receivedAt || r.ibdNo || r.expectedCompleteAt) ? `<div style="font-size:11.5px; color:var(--ink-muted); margin-top:6px;">${[
-          r.receivedAt ? `입고일 : ${fmtDate(r.receivedAt).split(' ')[0]}` : '',
-          r.ibdNo ? `IBD : ${escapeHtml(r.ibdNo)}` : '',
-          r.expectedCompleteAt ? `완료예정일 : ${fmtDate(r.expectedCompleteAt).split(' ')[0]}` : ''
-        ].filter(Boolean).join(' / ')}</div>` : ''}
+        ${status === 'testing' && (r.receivedAt || r.ibdNo || r.expectedCompleteAt) ? `<div style="font-size:11.5px; color:var(--ink-muted); margin-top:6px;">${escapeHtml(testInfoSummary(r))}</div>` : ''}
         <div class="meta-row">
           <span>등록 <b>${escapeHtml(r.registeredBy)}</b></span>
           <span>${fmtDate(r.registeredAt)}</span>
@@ -1880,9 +1876,8 @@ function openBulkModal(){
       <div id="bulkPasteArea">
         <div class="field">
           <label>엑셀에서 복사해서 붙여넣기</label>
-          <textarea id="pasteBox" style="min-height:120px;" placeholder="PC-1234	LOT2026-001	OOO정제 500mg	품질이상	비고	A
-PC-5678	LOT2026-002	OOO시럽	서류미비		B"></textarea>
-          <div class="hint">열 순서: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유</code>(선택) · <code>메모</code>(선택) · <code>상태값</code>(선택, A/B/D/E/F/Q/R 코드만 입력) — 엑셀 표를 그대로 드래그해서 복사·붙여넣기 하면 돼요.</div>
+          <textarea id="pasteBox" style="min-height:120px;" placeholder="PC-1234	LOT2026-001	OOO정제 500mg	품질이상	비고	A	2026-07-15	2026-07-14	IBD181674074	2026-08-10"></textarea>
+          <div class="hint">열 순서: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유</code>(선택) · <code>메모</code>(선택) · <code>상태값</code>(선택, A/B/D/E/F/Q/R) · <code>검사의뢰일</code>(선택) · <code>입고일</code>(선택) · <code>IBD번호</code>(선택) · <code>완료예정일</code>(선택, 날짜는 2026-07-20 또는 2026.07.20 형식) — 엑셀 표를 그대로 드래그해서 복사·붙여넣기 하면 돼요. 뒤쪽 칸은 필요한 만큼만 채워도 돼요.</div>
         </div>
       </div>
 
@@ -1893,7 +1888,7 @@ PC-5678	LOT2026-002	OOO시럽	서류미비		B"></textarea>
             📄 클릭해서 파일 선택 (.csv, .xlsx)
             <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
           </div>
-          <div class="hint">1행: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유</code> · <code>메모</code> · <code>상태값</code>(A/B/D/E/F/Q/R) 순서의 컬럼. 첫 줄이 헤더여도 자동으로 인식해요.</div>
+          <div class="hint">1행: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유</code> · <code>메모</code> · <code>상태값</code> · <code>검사의뢰일</code> · <code>입고일</code> · <code>IBD번호</code> · <code>완료예정일</code> 순서의 컬럼(뒤쪽 4개는 시험검사 관련, 선택사항). 첫 줄이 헤더여도 자동으로 인식해요.</div>
         </div>
       </div>
 
@@ -2069,6 +2064,27 @@ function normalizeStatusCode(raw){
   return STATUS_CODES[s] ? s : '';
 }
 
+// "2026-07-20" / "2026.07.20" / "2026/07/20" 등 흔한 구분자를 모두 인식해 ISO 문자열로 변환. 실패하면 null
+function parseDateFlexible(raw){
+  const s = (raw ?? '').toString().trim();
+  if(!s) return null;
+  const normalized = s.replace(/[./]/g, '-');
+  const m = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if(!m) return null;
+  const iso = `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}T00:00:00`;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// 카드·미리보기에서 공용으로 쓰는 "입고일 : ... / IBD : ... / 완료예정일 : ..." 요약 텍스트
+function testInfoSummary(obj){
+  return [
+    obj.receivedAt ? `입고일 : ${fmtDate(obj.receivedAt).split(' ')[0]}` : '',
+    obj.ibdNo ? `IBD : ${obj.ibdNo}` : '',
+    obj.expectedCompleteAt ? `완료예정일 : ${fmtDate(obj.expectedCompleteAt).split(' ')[0]}` : ''
+  ].filter(Boolean).join(' / ');
+}
+
 function normalizeRow(cols){
   cols = cols || [];
   const code = (cols[0] ?? '').toString().trim();
@@ -2084,8 +2100,12 @@ function normalizeRow(cols){
   }
   const memo = memoRaw;
   const statusCode = normalizeStatusCode(statusRaw);
+  const testRequestedAt = parseDateFlexible(cols[6]);
+  const receivedAt = parseDateFlexible(cols[7]);
+  const ibdNo = (cols[8] ?? '').toString().trim();
+  const expectedCompleteAt = parseDateFlexible(cols[9]);
   const valid = !!lot && !!product;
-  return { code, lot, product, reason, memo, statusCode, valid, include: valid };
+  return { code, lot, product, reason, memo, statusCode, testRequestedAt, receivedAt, ibdNo, expectedCompleteAt, valid, include: valid };
 }
 
 function findDupInfo(lot){
@@ -2113,9 +2133,16 @@ function renderPreview(){
 
   const table = document.getElementById('previewTable');
   table.innerHTML = `
-    <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유</th><th>상태값</th><th>중복</th></tr></thead>
+    <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유</th><th>상태값</th><th>테스트정보</th><th>중복</th></tr></thead>
     <tbody>
-      ${bulkRows.map((r,i)=>`
+      ${bulkRows.map((r,i)=>{
+        const testInfo = [
+          r.testRequestedAt ? `의뢰일:${fmtDate(r.testRequestedAt).split(' ')[0]}` : '',
+          r.receivedAt ? `입고일:${fmtDate(r.receivedAt).split(' ')[0]}` : '',
+          r.ibdNo ? `IBD:${r.ibdNo}` : '',
+          r.expectedCompleteAt ? `완료예정:${fmtDate(r.expectedCompleteAt).split(' ')[0]}` : ''
+        ].filter(Boolean).join(' / ');
+        return `
         <tr class="${r.valid ? '' : 'invalid'}">
           <td class="chk"><input type="checkbox" ${r.include ? 'checked':''} ${r.valid?'':'disabled'} onchange="bulkRows[${i}].include=this.checked"></td>
           <td>${escapeHtml(r.code) || '-'}</td>
@@ -2123,8 +2150,10 @@ function renderPreview(){
           <td>${escapeHtml(r.product) || '-'}</td>
           <td>${escapeHtml(r.reason)}</td>
           <td>${r.statusCode ? escapeHtml(statusCodeLabel(r.statusCode)) : '-'}</td>
+          <td style="font-size:11px; white-space:nowrap;">${testInfo ? escapeHtml(testInfo) : '-'}</td>
           <td>${r._existingDup ? `<span style="color:var(--danger); font-weight:600;">⚠ ${r._existingDup}</span>` : (r._withinDup ? `<span style="color:var(--amber); font-weight:600;">⚠ 목록 내 중복</span>` : '')}</td>
-        </tr>`).join('')}
+        </tr>`;
+      }).join('')}
     </tbody>`;
 }
 
@@ -2139,7 +2168,7 @@ function renderEditPreview(){
 
   const table = document.getElementById('previewTable');
   table.innerHTML = `
-    <thead><tr><th></th><th>LOT</th><th>기존 제품명 → 새 제품명</th><th>기존 사유 → 새 사유</th><th>기존 상태값 → 새 상태값</th><th>매칭</th></tr></thead>
+    <thead><tr><th></th><th>LOT</th><th>기존 제품명 → 새 제품명</th><th>기존 사유 → 새 사유</th><th>기존 상태값 → 새 상태값</th><th>테스트정보</th><th>매칭</th></tr></thead>
     <tbody>
       ${bulkRows.map((r,i)=>{
         const m = r._editMatch;
@@ -2148,6 +2177,12 @@ function renderEditPreview(){
         const oldStatusLabel = m && m.statusCode ? statusCodeLabel(m.statusCode) : '(없음)';
         const newStatusLabel = r.statusCode ? statusCodeLabel(r.statusCode) : '(없음)';
         const statusDiff = m ? `${escapeHtml(oldStatusLabel)} → <b>${escapeHtml(newStatusLabel)}</b>` : (r.statusCode ? escapeHtml(newStatusLabel) : '-');
+        const testInfo = [
+          r.testRequestedAt ? `의뢰일:${fmtDate(r.testRequestedAt).split(' ')[0]}` : '',
+          r.receivedAt ? `입고일:${fmtDate(r.receivedAt).split(' ')[0]}` : '',
+          r.ibdNo ? `IBD:${r.ibdNo}` : '',
+          r.expectedCompleteAt ? `완료예정:${fmtDate(r.expectedCompleteAt).split(' ')[0]}` : ''
+        ].filter(Boolean).join(' / ');
         return `
         <tr class="${m ? '' : 'invalid'}">
           <td class="chk"><input type="checkbox" ${r.include ? 'checked':''} ${m?'':'disabled'} onchange="bulkRows[${i}].include=this.checked"></td>
@@ -2155,6 +2190,7 @@ function renderEditPreview(){
           <td>${productDiff}</td>
           <td>${reasonDiff}</td>
           <td>${statusDiff}</td>
+          <td style="font-size:11px; white-space:nowrap;">${testInfo ? escapeHtml(testInfo) : '-'}</td>
           <td>${m ? '<span style="color:var(--green); font-weight:600;">✓ 매칭됨</span>' : '<span style="color:var(--danger); font-weight:600;">✕ LOT 없음</span>'}</td>
         </tr>`;
       }).join('')}
@@ -2175,6 +2211,7 @@ async function submitBulk(){
     return;
   }
   const now = new Date().toISOString();
+  const isTesting = bulkStatus === 'testing';
   const newRecords = toAdd.map((r, i) => ({
     id: genId() + i,
     lot: r.lot, product: r.product, code: r.code, reason: r.reason, memo: r.memo,
@@ -2182,6 +2219,10 @@ async function submitBulk(){
     registeredBy: by,
     registeredAt: now,
     status: bulkStatus,
+    testRequestedAt: isTesting ? (r.testRequestedAt || null) : null,
+    receivedAt: isTesting ? (r.receivedAt || null) : null,
+    ibdNo: isTesting ? (r.ibdNo || '') : '',
+    expectedCompleteAt: isTesting ? (r.expectedCompleteAt || null) : null,
     releasedBy: null, releasedAt: null, releaseMemo: null,
     testFailBy: null, testFailAt: null, testFailMemo: null
   }));
@@ -2207,6 +2248,12 @@ async function submitBulkEdit(){
   for(const r of toEdit){
     const rec = r._editMatch;
     const patch = { code: r.code, product: r.product, reason: r.reason, memo: r.memo, statusCode: r.statusCode || '' };
+    if(rec.status === 'testing'){
+      patch.testRequestedAt = r.testRequestedAt || null;
+      patch.receivedAt = r.receivedAt || null;
+      patch.ibdNo = r.ibdNo || '';
+      patch.expectedCompleteAt = r.expectedCompleteAt || null;
+    }
     const ok = await window.fbUpdateRecord(rec.id, patch);
     if(ok){
       Object.assign(rec, patch);
@@ -2285,6 +2332,10 @@ function exportToExcel(){
     '메모': r.memo || '',
     '상태값코드': r.statusCode || '',
     '상태값': r.statusCode ? statusCodeLabel(r.statusCode) : '',
+    '검사의뢰일': r.testRequestedAt ? fmtDate(r.testRequestedAt).split(' ')[0] : '',
+    '입고일': r.receivedAt ? fmtDate(r.receivedAt).split(' ')[0] : '',
+    'IBD번호': r.ibdNo || '',
+    '완료예정일': r.expectedCompleteAt ? fmtDate(r.expectedCompleteAt).split(' ')[0] : '',
     '등록자': r.registeredBy || '',
     '등록일시': r.registeredAt ? fmtDate(r.registeredAt) : '',
     '해제자': r.releasedBy || '',
@@ -2298,6 +2349,7 @@ function exportToExcel(){
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
     {wch:12},{wch:16},{wch:22},{wch:10},{wch:18},{wch:24},{wch:10},{wch:16},
+    {wch:12},{wch:12},{wch:16},{wch:12},
     {wch:10},{wch:16},{wch:10},{wch:16},{wch:24},{wch:12},{wch:16},{wch:24}
   ];
   const wb = XLSX.utils.book_new();
