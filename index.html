@@ -881,9 +881,9 @@ function render(){
         <span class="reason-tag">${escapeHtml(r.reason)}</span>
         ${r.memo ? `<div class="memo">${escapeHtml(r.memo)}</div>` : ''}
         ${status === 'testing' && (r.receivedAt || r.ibdNo || r.expectedCompleteAt) ? `<div style="font-size:11.5px; color:var(--ink-muted); margin-top:6px;">${[
-          r.receivedAt ? `입고일${fmtDate(r.receivedAt).split(' ')[0]}` : '',
-          r.ibdNo ? `IBD${escapeHtml(r.ibdNo)}` : '',
-          r.expectedCompleteAt ? `완료일${fmtDate(r.expectedCompleteAt).split(' ')[0]}` : ''
+          r.receivedAt ? `입고일 : ${fmtDate(r.receivedAt).split(' ')[0]}` : '',
+          r.ibdNo ? `IBD : ${escapeHtml(r.ibdNo)}` : '',
+          r.expectedCompleteAt ? `완료예정일 : ${fmtDate(r.expectedCompleteAt).split(' ')[0]}` : ''
         ].filter(Boolean).join(' / ')}</div>` : ''}
         <div class="meta-row">
           <span>등록 <b>${escapeHtml(r.registeredBy)}</b></span>
