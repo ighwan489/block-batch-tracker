@@ -1598,7 +1598,16 @@ async function revertRecord(id){
     return; // 되돌릴 이전 상태가 없음
   }
 
-  if(!confirm(confirmMsg + '\n(이 작업도 이력에 기록돼요)')) return;
+  showAppConfirm(
+    confirmMsg + '\n(이 작업도 이력에 기록돼요)',
+    '되돌리기',
+    ()=> doRevertRecord(id, newStatus, clearFields)
+  );
+}
+
+async function doRevertRecord(id, newStatus, clearFields){
+  const rec = records.find(r => r.id === id);
+  if(!rec) return;
 
   const by = myName || '';
   const entry = makeHistoryEntry(newStatus, by, '되돌리기', new Date().toISOString());
@@ -3059,7 +3068,16 @@ function openCertView(id){
 async function deleteCertificate(id, idx){
   const rec = records.find(r => r.id === id);
   if(!rec || !rec.certificates || !rec.certificates[idx]) return;
-  if(!confirm('이 성적서를 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
+  showAppConfirm(
+    '이 성적서를 삭제할까요? 삭제하면 되돌릴 수 없어요.',
+    '삭제',
+    ()=> doDeleteCertificate(id, idx)
+  );
+}
+
+async function doDeleteCertificate(id, idx){
+  const rec = records.find(r => r.id === id);
+  if(!rec || !rec.certificates || !rec.certificates[idx]) return;
   const target = rec.certificates[idx];
   const ok = await window.fbRemoveCertificate(id, target);
   if(ok){
