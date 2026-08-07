@@ -2018,17 +2018,54 @@ function looksLikeHeader(cols){
   return joined.includes('lot') || joined.includes('품목') || joined.includes('배치');
 }
 
+// 헤더 셀 텍스트 -> 내부 필드명 매칭용 별칭 목록. "상태값"(라벨, 예: [A]정상)은 일부러 매핑하지 않음 - 코드 원본은 "상태값코드"로만 받음
+const FIELD_ALIASES = {
+  code: ['제품코드','품목코드','코드'],
+  lot: ['lot번호','lot','로트번호','로트','배치번호'],
+  product: ['제품명','품목명'],
+  reason: ['사유(메모)','사유','메모','비고'],
+  statusCode: ['상태값코드','상태값','상태코드'],
+  testRequestedAt: ['검사의뢰일','의뢰일'],
+  receivedAt: ['입고일'],
+  ibdNo: ['ibd번호','ibd'],
+  expectedCompleteAt: ['완료예정일','완료일']
+};
+// 헤더 없이 그냥 값만 붙여넣었을 때 쓰는 기본 열 순서 (기존 방식과 동일)
+const DEFAULT_COLUMN_MAP = { code:0, lot:1, product:2, reason:3, statusCode:4, testRequestedAt:5, receivedAt:6, ibdNo:7, expectedCompleteAt:8 };
+
+function normalizeHeaderCell(s){
+  return (s ?? '').toString().trim().toLowerCase().replace(/\s+/g, '');
+}
+
+// 헤더 줄의 각 칸이 어떤 필드인지 자동으로 찾아서 {필드명: 열번호} 맵을 만듦
+function detectColumnMap(headerCols){
+  const headerNorm = headerCols.map(normalizeHeaderCell);
+  const map = {};
+  Object.keys(FIELD_ALIASES).forEach(field=>{
+    const aliases = FIELD_ALIASES[field].map(normalizeHeaderCell);
+    const idx = headerNorm.findIndex(h => aliases.includes(h));
+    if(idx !== -1) map[field] = idx;
+  });
+  return map;
+}
+
 function parseDelimitedText(text){
   const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length>0);
   if(lines.length === 0) return [];
   let dataLines = lines;
   const firstCols = lines[0].split(/\t|,/).map(c=>c.trim());
-  if(looksLikeHeader(firstCols)) dataLines = lines.slice(1);
+  let columnMap = DEFAULT_COLUMN_MAP;
+  if(looksLikeHeader(firstCols)){
+    const detected = detectColumnMap(firstCols);
+    // LOT·제품명 열을 헤더에서 못 찾으면 신뢰할 수 없으니 기본 순서로 폴백
+    if(detected.lot !== undefined && detected.product !== undefined) columnMap = detected;
+    dataLines = lines.slice(1);
+  }
 
   return dataLines.map(line=>{
     const cols = line.split('\t').length > 1 ? line.split('\t') : line.split(',');
     const c = cols.map(x=>(x||'').trim());
-    return normalizeRow(c);
+    return normalizeRow(c, columnMap);
   });
 }
 
@@ -2050,8 +2087,13 @@ function parseFile(file){
           const sheet = wb.Sheets[wb.SheetNames[0]];
           const rows = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' });
           let data = rows.filter(r => r.some(c => String(c).trim() !== ''));
-          if(data.length && looksLikeHeader(data[0].map(String))) data = data.slice(1);
-          resolve(data.map(r => normalizeRow(r)));
+          let columnMap = DEFAULT_COLUMN_MAP;
+          if(data.length && looksLikeHeader(data[0].map(String))){
+            const detected = detectColumnMap(data[0].map(String));
+            if(detected.lot !== undefined && detected.product !== undefined) columnMap = detected;
+            data = data.slice(1);
+          }
+          resolve(data.map(r => normalizeRow(r, columnMap)));
         }catch(err){ showToast('엑셀 파싱 실패 - 파일 형식을 확인해주세요'); resolve([]); }
       };
       reader.readAsArrayBuffer(file);
@@ -2085,18 +2127,23 @@ function testInfoSummary(obj){
   ].filter(Boolean).join(' / ');
 }
 
-function normalizeRow(cols){
+function normalizeRow(cols, columnMap){
   cols = cols || [];
-  const code = (cols[0] ?? '').toString().trim();
-  const lot = (cols[1] ?? '').toString().trim();
-  const product = (cols[2] ?? '').toString().trim();
-  const reason = (cols[3] ?? '').toString().trim() || '기타';
+  columnMap = columnMap || DEFAULT_COLUMN_MAP;
+  const get = (field) => {
+    const idx = columnMap[field];
+    return idx === undefined ? '' : cols[idx];
+  };
+  const code = (get('code') ?? '').toString().trim();
+  const lot = (get('lot') ?? '').toString().trim();
+  const product = (get('product') ?? '').toString().trim();
+  const reason = (get('reason') ?? '').toString().trim() || '기타';
   const memo = '';
-  const statusCode = normalizeStatusCode(cols[4]);
-  const testRequestedAt = parseDateFlexible(cols[5]);
-  const receivedAt = parseDateFlexible(cols[6]);
-  const ibdNo = (cols[7] ?? '').toString().trim();
-  const expectedCompleteAt = parseDateFlexible(cols[8]);
+  const statusCode = normalizeStatusCode(get('statusCode'));
+  const testRequestedAt = parseDateFlexible(get('testRequestedAt'));
+  const receivedAt = parseDateFlexible(get('receivedAt'));
+  const ibdNo = (get('ibdNo') ?? '').toString().trim();
+  const expectedCompleteAt = parseDateFlexible(get('expectedCompleteAt'));
   const valid = !!lot && !!product;
   return { code, lot, product, reason, memo, statusCode, testRequestedAt, receivedAt, ibdNo, expectedCompleteAt, valid, include: valid };
 }
