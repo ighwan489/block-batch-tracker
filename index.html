@@ -1907,8 +1907,9 @@ function openBulkModal(){
           <table class="preview-table" id="previewTable"></table>
         </div>
         <div class="err" id="bulk_err">이름과 처리할 항목이 1건 이상 필요해요</div>
+        <div id="bulkProgress" style="display:none; font-size:12.5px; color:var(--steel-dark); font-weight:600; margin-top:8px; text-align:center;"></div>
         <div class="modal-actions">
-          <button class="btn-cancel" onclick="closeOverlay('bulkOverlay')">취소</button>
+          <button class="btn-cancel" id="bulkCancelBtn" onclick="closeOverlay('bulkOverlay')">취소</button>
           <button class="btn-submit" id="bulkSubmitBtn">일괄 등록</button>
         </div>
       </div>
@@ -2250,6 +2251,16 @@ async function submitBulk(){
     document.getElementById('bulk_err').style.display = 'block';
     return;
   }
+
+  const submitBtn = document.getElementById('bulkSubmitBtn');
+  const cancelBtn = document.getElementById('bulkCancelBtn');
+  const progressEl = document.getElementById('bulkProgress');
+  const originalLabel = submitBtn.textContent;
+  submitBtn.disabled = true;
+  if(cancelBtn) cancelBtn.disabled = true;
+  submitBtn.textContent = '등록 중...';
+  if(progressEl){ progressEl.style.display = 'block'; progressEl.textContent = `⏳ ${toAdd.length}건 등록 중이에요 - 잠시만 기다려주세요`; }
+
   const now = new Date().toISOString();
   const isTesting = bulkStatus === 'testing';
   const newRecords = toAdd.map((r, i) => ({
@@ -2266,12 +2277,12 @@ async function submitBulk(){
     releasedBy: null, releasedAt: null, releaseMemo: null,
     testFailBy: null, testFailAt: null, testFailMemo: null
   }));
-  newRecords.forEach(rec => records.push(rec));
+  const ok = await window.fbBulkAdd(newRecords);
+  if(ok) newRecords.forEach(rec => records.push(rec));
   render();
   closeOverlay('bulkOverlay');
   await saveMyName(by);
-  const ok = await window.fbBulkAdd(newRecords);
-  showToast(ok ? `${toAdd.length}건 일괄 등록 완료` : '등록됐지만 저장에 실패했어요');
+  showToast(ok ? `${toAdd.length}건 일괄 등록 완료` : '등록에 실패했어요 - 네트워크 확인 후 다시 시도해주세요');
 }
 
 // 일괄 수정 - LOT이 매칭된 레코드들의 제품코드/제품명/사유/메모/상태값을 붙여넣은 값으로 전부 덮어씀
@@ -2283,9 +2294,20 @@ async function submitBulkEdit(){
     return;
   }
 
+  const submitBtn = document.getElementById('bulkSubmitBtn');
+  const cancelBtn = document.getElementById('bulkCancelBtn');
+  const progressEl = document.getElementById('bulkProgress');
+  submitBtn.disabled = true;
+  if(cancelBtn) cancelBtn.disabled = true;
+  if(progressEl) progressEl.style.display = 'block';
+
   let successCount = 0;
   let failCount = 0;
+  let done = 0;
   for(const r of toEdit){
+    done++;
+    submitBtn.textContent = `수정 중... (${done}/${toEdit.length})`;
+    if(progressEl) progressEl.textContent = `⏳ ${done} / ${toEdit.length}건 처리 중이에요 - 이 창을 닫지 말고 잠시만 기다려주세요`;
     const rec = r._editMatch;
     const patch = { code: r.code, product: r.product, reason: r.reason, memo: r.memo, statusCode: r.statusCode || '' };
     patch.testRequestedAt = r.testRequestedAt || null;
