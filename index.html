@@ -1192,7 +1192,6 @@ function openEdit(id){
         <input id="e_reason" type="text" list="reasonSuggestions" value="${escapeHtml(reasonMemoText(rec))}">
         <datalist id="reasonSuggestions">${REASONS.map(r=>`<option value="${escapeHtml(r)}">`).join('')}</datalist>
       </div>
-      ${rec.status === 'testing' ? `
       <div class="field-group">
         <div class="field-group-title">📅 입고·검사 정보 (선택)</div>
         <div class="field-row-2">
@@ -1203,8 +1202,8 @@ function openEdit(id){
           <div class="field"><label>IBD 번호</label><input id="e_ibdNo" type="text" value="${escapeHtml(rec.ibdNo || '')}" placeholder="예: IBD181674074"></div>
           <div class="field"><label>완료 예정일</label><input id="e_expectedCompleteAt" type="date" value="${rec.expectedCompleteAt ? rec.expectedCompleteAt.slice(0,10) : ''}"></div>
         </div>
-        <div class="hint" style="margin-top:-2px;">검사의뢰일을 비워두면 등록일자로 자동 설정돼요.</div>
-      </div>` : ''}
+        <div class="hint" style="margin-top:-2px;">검사의뢰일을 비워두면 등록일자로 자동 설정돼요. 시험검사중이 아니어도 나중에 채우거나 수정할 수 있어요.</div>
+      </div>
       <div class="field"><label>상태값 (선택)</label>
         <select id="e_statusCode">${statusCodeOptionsHtml(rec.statusCode || '')}</select>
       </div>
@@ -1236,7 +1235,7 @@ async function submitEdit(id){
 
   const lotChanged = lot.toLowerCase() !== rec.lot.trim().toLowerCase();
   const patch = { code, lot, product, reason, memo: '', statusCode: statusCode || '' };
-  if(rec.status === 'testing'){
+  {
     const testDateEl = document.getElementById('e_testRequestedAt');
     const raw = testDateEl ? testDateEl.value : '';
     patch.testRequestedAt = raw ? new Date(raw + 'T00:00:00').toISOString() : null;
@@ -2242,12 +2241,10 @@ async function submitBulkEdit(){
   for(const r of toEdit){
     const rec = r._editMatch;
     const patch = { code: r.code, product: r.product, reason: r.reason, memo: r.memo, statusCode: r.statusCode || '' };
-    if(rec.status === 'testing'){
-      patch.testRequestedAt = r.testRequestedAt || null;
-      patch.receivedAt = r.receivedAt || null;
-      patch.ibdNo = r.ibdNo || '';
-      patch.expectedCompleteAt = r.expectedCompleteAt || null;
-    }
+    patch.testRequestedAt = r.testRequestedAt || null;
+    patch.receivedAt = r.receivedAt || null;
+    patch.ibdNo = r.ibdNo || '';
+    patch.expectedCompleteAt = r.expectedCompleteAt || null;
     const ok = await window.fbUpdateRecord(rec.id, patch);
     if(ok){
       Object.assign(rec, patch);
