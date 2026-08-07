@@ -2260,6 +2260,7 @@ async function submitBulk(){
   if(cancelBtn) cancelBtn.disabled = true;
   submitBtn.textContent = '등록 중...';
   if(progressEl){ progressEl.style.display = 'block'; progressEl.textContent = `⏳ ${toAdd.length}건 등록 중이에요 - 잠시만 기다려주세요`; }
+  await new Promise(resolve => requestAnimationFrame(resolve));
 
   const now = new Date().toISOString();
   const isTesting = bulkStatus === 'testing';
@@ -2308,6 +2309,8 @@ async function submitBulkEdit(){
     done++;
     submitBtn.textContent = `수정 중... (${done}/${toEdit.length})`;
     if(progressEl) progressEl.textContent = `⏳ ${done} / ${toEdit.length}건 처리 중이에요 - 이 창을 닫지 말고 잠시만 기다려주세요`;
+    // 브라우저가 위 텍스트 변경을 실제로 화면에 그릴 수 있도록 한 프레임 양보 (안 그러면 155건이 순식간에 처리되면서 중간 진행상황이 화면에 안 그려짐)
+    await new Promise(resolve => requestAnimationFrame(resolve));
     const rec = r._editMatch;
     const patch = { code: r.code, product: r.product, reason: r.reason, memo: r.memo, statusCode: r.statusCode || '' };
     patch.testRequestedAt = r.testRequestedAt || null;
