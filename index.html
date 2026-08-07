@@ -684,6 +684,10 @@ let sortOption = 'recent';
 let statusCodeFilter = '';
 
 const REASONS = ['신규배치 시험검사(출하승인 대기)','품질이상','유효기간 임박/만료','서류 미비','고객 반품/클레임','재고 수량 불일치','PI(입고검사) 보류','기타'];
+// 사유(reason)와 메모(memo)를 한 줄로 합쳐서 보여줌 - 새로 만드는 레코드는 reason 하나에만 입력하지만, memo가 남아있는 기존 레코드도 자연스럽게 같이 표시됨
+function reasonMemoText(r){
+  return [r && r.reason, r && r.memo].filter(Boolean).join(' · ');
+}
 const STATUS_CODES = { A:'정상', B:'판정대기', D:'부적합', E:'유효기간경과', F:'유효기간임박', Q:'Quarantine', R:'Retain Sample' };
 const STATUS_CODE_ORDER = ['A','B','D','E','F','Q','R'];
 function statusCodeLabel(code){
@@ -878,8 +882,7 @@ function render(){
           </div>
         </div>
         ${elapsedBadgeHtml(r)}
-        <span class="reason-tag">${escapeHtml(r.reason)}</span>
-        ${r.memo ? `<div class="memo">${escapeHtml(r.memo)}</div>` : ''}
+        ${reasonMemoText(r) ? `<div class="memo">${escapeHtml(reasonMemoText(r))}</div>` : ''}
         ${status === 'testing' && (r.receivedAt || r.ibdNo || r.expectedCompleteAt) ? `<div style="font-size:11.5px; color:var(--ink-muted); margin-top:6px;">${escapeHtml(testInfoSummary(r))}</div>` : ''}
         <div class="meta-row">
           <span>등록 <b>${escapeHtml(r.registeredBy)}</b></span>
@@ -1058,8 +1061,9 @@ function openAddModal(){
       <div class="field"><label>제품코드</label><input id="f_code" type="text" placeholder="예: PC-1234 (선택)"></div>
       <div class="field"><label>LOT / 배치번호 *</label><input id="f_lot" type="text" placeholder="예: LOT2026-0721A"></div>
       <div class="field"><label>제품명 *</label><input id="f_product" type="text" placeholder="예: OOO 정제 500mg"></div>
-      <div class="field"><label id="f_reason_label">블락 사유 *</label>
-        <select id="f_reason">${REASONS.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
+      <div class="field"><label id="f_reason_label">사유(메모) *</label>
+        <input id="f_reason" type="text" list="reasonSuggestions" placeholder="예: 품질이상, 유효기간 임박/만료 등 자유롭게 입력">
+        <datalist id="reasonSuggestions">${REASONS.map(r=>`<option value="${escapeHtml(r)}">`).join('')}</datalist>
       </div>
       <div class="field-group" id="f_testDateWrap" style="display:none;">
         <div class="field-group-title">📅 입고·검사 정보 (선택)</div>
@@ -1073,7 +1077,6 @@ function openAddModal(){
         </div>
         <div class="hint" style="margin-top:-2px;">검사의뢰일을 비워두면 등록일자로 자동 설정돼요.</div>
       </div>
-      <div class="field"><label>상세 메모</label><textarea id="f_memo" placeholder="상세 내용 (선택)"></textarea></div>
       <div class="field"><label>상태값 (선택)</label>
         <select id="f_statusCode">${statusCodeOptionsHtml('')}</select>
       </div>
@@ -1094,7 +1097,7 @@ function openAddModal(){
       btn.classList.add('active');
       addStatus = btn.dataset.v;
       const isTesting = addStatus === 'testing';
-      overlay.querySelector('#f_reason_label').textContent = isTesting ? '검사 사유' : '블락 사유 *';
+      overlay.querySelector('#f_reason_label').textContent = isTesting ? '사유(메모)' : '사유(메모) *';
       overlay.querySelector('#addSubmitBtn').textContent = isTesting ? '시험검사중으로 등록' : '블락 등록';
       overlay.querySelector('#f_testDateWrap').style.display = isTesting ? 'block' : 'none';
       const reasonSelect = overlay.querySelector('#f_reason');
@@ -1107,7 +1110,7 @@ function openAddModal(){
       }
     });
   });
-  overlay.querySelector('#f_reason').addEventListener('change', (e)=>{ e.target.dataset.userTouched = 'true'; });
+  overlay.querySelector('#f_reason').addEventListener('input', (e)=>{ e.target.dataset.userTouched = 'true'; });
   overlay.querySelector('#f_statusCode').addEventListener('change', (e)=>{ e.target.dataset.userTouched = 'true'; });
 }
 
@@ -1115,8 +1118,7 @@ async function submitAdd(){
   const code = document.getElementById('f_code').value.trim();
   const lot = document.getElementById('f_lot').value.trim();
   const product = document.getElementById('f_product').value.trim();
-  const reason = document.getElementById('f_reason').value;
-  const memo = document.getElementById('f_memo').value.trim();
+  const reason = document.getElementById('f_reason').value.trim();
   const statusCode = document.getElementById('f_statusCode').value;
   const by = document.getElementById('f_by').value.trim();
   const testRequestedAtRaw = document.getElementById('f_testRequestedAt').value; // YYYY-MM-DD or ''
@@ -1129,7 +1131,7 @@ async function submitAdd(){
     return;
   }
 
-  const data = { code, lot, product, reason, memo, statusCode, by, testRequestedAtRaw, receivedAtRaw, ibdNo, expectedCompleteAtRaw };
+  const data = { code, lot, product, reason, statusCode, by, testRequestedAtRaw, receivedAtRaw, ibdNo, expectedCompleteAtRaw };
   const dup = records.find(r => r.lot.trim().toLowerCase() === lot.toLowerCase());
   if(dup){
     showAppConfirm(
@@ -1143,7 +1145,7 @@ async function submitAdd(){
 }
 
 async function doAddRecord(data){
-  const { code, lot, product, reason, memo, statusCode, by, testRequestedAtRaw, receivedAtRaw, ibdNo, expectedCompleteAtRaw } = data;
+  const { code, lot, product, reason, statusCode, by, testRequestedAtRaw, receivedAtRaw, ibdNo, expectedCompleteAtRaw } = data;
   const isTesting = addStatus === 'testing';
   const testRequestedAt = (isTesting && testRequestedAtRaw) ? new Date(testRequestedAtRaw + 'T00:00:00').toISOString() : null;
   const receivedAt = (isTesting && receivedAtRaw) ? new Date(receivedAtRaw + 'T00:00:00').toISOString() : null;
@@ -1152,7 +1154,7 @@ async function doAddRecord(data){
 
   const rec = {
     id: genId(),
-    lot, product, code, reason, memo,
+    lot, product, code, reason, memo: '',
     statusCode: statusCode || '',
     registeredBy: by,
     registeredAt: nowIso,
@@ -1163,7 +1165,7 @@ async function doAddRecord(data){
     expectedCompleteAt,
     releasedBy: null, releasedAt: null, releaseMemo: null,
     testFailBy: null, testFailAt: null, testFailMemo: null,
-    history: [makeHistoryEntry(addStatus, by, reason || memo, nowIso)]
+    history: [makeHistoryEntry(addStatus, by, reason, nowIso)]
   };
   records.push(rec);
   render();
@@ -1186,8 +1188,9 @@ function openEdit(id){
       <div class="field"><label>제품코드</label><input id="e_code" type="text" value="${escapeHtml(rec.code || '')}" placeholder="예: PC-1234 (선택)"></div>
       <div class="field"><label>LOT / 배치번호 *</label><input id="e_lot" type="text" value="${escapeHtml(rec.lot)}"></div>
       <div class="field"><label>제품명 *</label><input id="e_product" type="text" value="${escapeHtml(rec.product)}"></div>
-      <div class="field"><label>사유</label>
-        <select id="e_reason">${((rec.reason && !REASONS.includes(rec.reason)) ? [rec.reason, ...REASONS] : REASONS).map(r=>`<option value="${escapeHtml(r)}" ${r===rec.reason?'selected':''}>${escapeHtml(r)}${!REASONS.includes(r) ? ' (기존 값)' : ''}</option>`).join('')}</select>
+      <div class="field"><label>사유(메모)</label>
+        <input id="e_reason" type="text" list="reasonSuggestions" value="${escapeHtml(reasonMemoText(rec))}">
+        <datalist id="reasonSuggestions">${REASONS.map(r=>`<option value="${escapeHtml(r)}">`).join('')}</datalist>
       </div>
       ${rec.status === 'testing' ? `
       <div class="field-group">
@@ -1202,7 +1205,6 @@ function openEdit(id){
         </div>
         <div class="hint" style="margin-top:-2px;">검사의뢰일을 비워두면 등록일자로 자동 설정돼요.</div>
       </div>` : ''}
-      <div class="field"><label>상세 메모</label><textarea id="e_memo">${escapeHtml(rec.memo || '')}</textarea></div>
       <div class="field"><label>상태값 (선택)</label>
         <select id="e_statusCode">${statusCodeOptionsHtml(rec.statusCode || '')}</select>
       </div>
@@ -1221,8 +1223,7 @@ async function submitEdit(id){
   const code = document.getElementById('e_code').value.trim();
   const lot = document.getElementById('e_lot').value.trim();
   const product = document.getElementById('e_product').value.trim();
-  const reason = document.getElementById('e_reason').value;
-  const memo = document.getElementById('e_memo').value.trim();
+  const reason = document.getElementById('e_reason').value.trim();
   const statusCode = document.getElementById('e_statusCode').value;
 
   if(!lot || !product){
@@ -1234,7 +1235,7 @@ async function submitEdit(id){
   if(!rec) return;
 
   const lotChanged = lot.toLowerCase() !== rec.lot.trim().toLowerCase();
-  const patch = { code, lot, product, reason, memo, statusCode: statusCode || '' };
+  const patch = { code, lot, product, reason, memo: '', statusCode: statusCode || '' };
   if(rec.status === 'testing'){
     const testDateEl = document.getElementById('e_testRequestedAt');
     const raw = testDateEl ? testDateEl.value : '';
@@ -1876,8 +1877,8 @@ function openBulkModal(){
       <div id="bulkPasteArea">
         <div class="field">
           <label>엑셀에서 복사해서 붙여넣기</label>
-          <textarea id="pasteBox" style="min-height:120px;" placeholder="PC-1234	LOT2026-001	OOO정제 500mg	품질이상	비고	A	2026-07-15	2026-07-14	IBD181674074	2026-08-10"></textarea>
-          <div class="hint">열 순서: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유</code>(선택) · <code>메모</code>(선택) · <code>상태값</code>(선택, A/B/D/E/F/Q/R) · <code>검사의뢰일</code>(선택) · <code>입고일</code>(선택) · <code>IBD번호</code>(선택) · <code>완료예정일</code>(선택, 날짜는 2026-07-20 또는 2026.07.20 형식) — 엑셀 표를 그대로 드래그해서 복사·붙여넣기 하면 돼요. 뒤쪽 칸은 필요한 만큼만 채워도 돼요.</div>
+          <textarea id="pasteBox" style="min-height:120px;" placeholder="PC-1234	LOT2026-001	OOO정제 500mg	품질이상	A	2026-07-15	2026-07-14	IBD181674074	2026-08-10"></textarea>
+          <div class="hint">열 순서: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유(메모)</code>(선택) · <code>상태값</code>(선택, A/B/D/E/F/Q/R) · <code>검사의뢰일</code>(선택) · <code>입고일</code>(선택) · <code>IBD번호</code>(선택) · <code>완료예정일</code>(선택, 날짜는 2026-07-20 또는 2026.07.20 형식) — 엑셀 표를 그대로 드래그해서 복사·붙여넣기 하면 돼요. 뒤쪽 칸은 필요한 만큼만 채워도 돼요.</div>
         </div>
       </div>
 
@@ -1888,7 +1889,7 @@ function openBulkModal(){
             📄 클릭해서 파일 선택 (.csv, .xlsx)
             <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
           </div>
-          <div class="hint">1행: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유</code> · <code>메모</code> · <code>상태값</code> · <code>검사의뢰일</code> · <code>입고일</code> · <code>IBD번호</code> · <code>완료예정일</code> 순서의 컬럼(뒤쪽 4개는 시험검사 관련, 선택사항). 첫 줄이 헤더여도 자동으로 인식해요.</div>
+          <div class="hint">1행: <code>제품코드</code> · <code>LOT번호</code> · <code>제품명</code> · <code>사유(메모)</code> · <code>상태값</code> · <code>검사의뢰일</code> · <code>입고일</code> · <code>IBD번호</code> · <code>완료예정일</code> 순서의 컬럼(뒤쪽 4개는 시험검사 관련, 선택사항). 첫 줄이 헤더여도 자동으로 인식해요.</div>
         </div>
       </div>
 
@@ -2091,19 +2092,12 @@ function normalizeRow(cols){
   const lot = (cols[1] ?? '').toString().trim();
   const product = (cols[2] ?? '').toString().trim();
   const reason = (cols[3] ?? '').toString().trim() || '기타';
-  let memoRaw = (cols[4] ?? '').toString().trim();
-  let statusRaw = (cols[5] ?? '').toString().trim();
-  // 상태값 칸(6번째)이 비어있고, 메모 칸(5번째)에 유효한 상태코드가 들어온 경우 - 메모 생략하고 상태값 넣은 걸로 간주
-  if(!statusRaw && normalizeStatusCode(memoRaw)){
-    statusRaw = memoRaw;
-    memoRaw = '';
-  }
-  const memo = memoRaw;
-  const statusCode = normalizeStatusCode(statusRaw);
-  const testRequestedAt = parseDateFlexible(cols[6]);
-  const receivedAt = parseDateFlexible(cols[7]);
-  const ibdNo = (cols[8] ?? '').toString().trim();
-  const expectedCompleteAt = parseDateFlexible(cols[9]);
+  const memo = '';
+  const statusCode = normalizeStatusCode(cols[4]);
+  const testRequestedAt = parseDateFlexible(cols[5]);
+  const receivedAt = parseDateFlexible(cols[6]);
+  const ibdNo = (cols[7] ?? '').toString().trim();
+  const expectedCompleteAt = parseDateFlexible(cols[8]);
   const valid = !!lot && !!product;
   return { code, lot, product, reason, memo, statusCode, testRequestedAt, receivedAt, ibdNo, expectedCompleteAt, valid, include: valid };
 }
@@ -2133,7 +2127,7 @@ function renderPreview(){
 
   const table = document.getElementById('previewTable');
   table.innerHTML = `
-    <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유</th><th>상태값</th><th>테스트정보</th><th>중복</th></tr></thead>
+    <thead><tr><th></th><th>제품코드</th><th>LOT</th><th>제품명</th><th>사유(메모)</th><th>상태값</th><th>테스트정보</th><th>중복</th></tr></thead>
     <tbody>
       ${bulkRows.map((r,i)=>{
         const testInfo = [
@@ -2168,12 +2162,12 @@ function renderEditPreview(){
 
   const table = document.getElementById('previewTable');
   table.innerHTML = `
-    <thead><tr><th></th><th>LOT</th><th>기존 제품명 → 새 제품명</th><th>기존 사유 → 새 사유</th><th>기존 상태값 → 새 상태값</th><th>테스트정보</th><th>매칭</th></tr></thead>
+    <thead><tr><th></th><th>LOT</th><th>기존 제품명 → 새 제품명</th><th>기존 사유(메모) → 새 사유(메모)</th><th>기존 상태값 → 새 상태값</th><th>테스트정보</th><th>매칭</th></tr></thead>
     <tbody>
       ${bulkRows.map((r,i)=>{
         const m = r._editMatch;
         const productDiff = m ? `${escapeHtml(m.product)} → <b>${escapeHtml(r.product)}</b>` : (escapeHtml(r.product) || '-');
-        const reasonDiff = m ? `${escapeHtml(m.reason || '')} → <b>${escapeHtml(r.reason)}</b>` : escapeHtml(r.reason);
+        const reasonDiff = m ? `${escapeHtml(reasonMemoText(m))} → <b>${escapeHtml(r.reason)}</b>` : escapeHtml(r.reason);
         const oldStatusLabel = m && m.statusCode ? statusCodeLabel(m.statusCode) : '(없음)';
         const newStatusLabel = r.statusCode ? statusCodeLabel(r.statusCode) : '(없음)';
         const statusDiff = m ? `${escapeHtml(oldStatusLabel)} → <b>${escapeHtml(newStatusLabel)}</b>` : (r.statusCode ? escapeHtml(newStatusLabel) : '-');
@@ -2285,7 +2279,7 @@ function openPrintView(){
       <td style="font-weight:700;">${escapeHtml(r.lot)}</td>
       <td>${escapeHtml(r.product)}</td>
       <td style="white-space:nowrap;">${STATUS_LABEL[r.status] || r.status}</td>
-      <td>${escapeHtml(r.reason || '')}</td>
+      <td>${escapeHtml(reasonMemoText(r))}</td>
       <td>${showDays}</td>
       <td>${escapeHtml(r.registeredBy || '')}</td>
       <td>${r.registeredAt ? fmtDate(r.registeredAt) : ''}</td>
@@ -2307,7 +2301,7 @@ function openPrintView(){
     <div class="meta">출력일시: ${printedAt} · 총 ${list.length}건</div>
     <button onclick="window.print()" style="margin-bottom:12px; padding:8px 14px;">인쇄하기</button>
     <table>
-      <thead><tr><th>제품코드</th><th>LOT</th><th>제품명</th><th>상태</th><th>사유</th><th>경과일</th><th>등록자</th><th>등록일시</th></tr></thead>
+      <thead><tr><th>제품코드</th><th>LOT</th><th>제품명</th><th>상태</th><th>사유(메모)</th><th>경과일</th><th>등록자</th><th>등록일시</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table>
     </body></html>`;
@@ -2328,8 +2322,7 @@ function exportToExcel(){
     'LOT번호': r.lot,
     '제품명': r.product,
     '상태': STATUS_LABEL[r.status] || r.status,
-    '사유': r.reason || '',
-    '메모': r.memo || '',
+    '사유(메모)': reasonMemoText(r),
     '상태값코드': r.statusCode || '',
     '상태값': r.statusCode ? statusCodeLabel(r.statusCode) : '',
     '검사의뢰일': r.testRequestedAt ? fmtDate(r.testRequestedAt).split(' ')[0] : '',
@@ -2348,7 +2341,7 @@ function exportToExcel(){
 
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
-    {wch:12},{wch:16},{wch:22},{wch:10},{wch:18},{wch:24},{wch:10},{wch:16},
+    {wch:12},{wch:16},{wch:22},{wch:10},{wch:28},{wch:10},{wch:16},
     {wch:12},{wch:12},{wch:16},{wch:12},
     {wch:10},{wch:16},{wch:10},{wch:16},{wch:24},{wch:12},{wch:16},{wch:24}
   ];
