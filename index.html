@@ -265,21 +265,22 @@
     display:flex; align-items:center; justify-content:center; line-height:1; border:2px solid var(--steel-dark);
   }
   .notif-toast-wrap{
-    position:fixed; top:14px; left:0; right:0; z-index:60;
+    position:fixed; top:14px; left:0; right:0; z-index:70;
     display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none;
   }
   .notif-toast{
     max-width:420px; width:calc(100% - 32px);
-    background:var(--steel-dark); color:#fff; border-radius:12px; padding:11px 14px;
-    box-shadow:0 6px 18px rgba(0,0,0,.28); display:flex; align-items:flex-start; gap:9px;
+    background:#FFFFFF; color:var(--ink); border-radius:12px; padding:11px 14px;
+    border-left:4px solid var(--steel); box-shadow:0 8px 24px rgba(20,30,45,.35);
+    display:flex; align-items:flex-start; gap:9px;
     opacity:0; transform:translateY(-10px); transition:opacity .25s ease, transform .25s ease;
     pointer-events:auto;
   }
   .notif-toast.show{ opacity:1; transform:translateY(0); }
   .notif-toast .nt-icon{ font-size:16px; flex-shrink:0; margin-top:1px; }
   .notif-toast .nt-body{ flex:1; min-width:0; }
-  .notif-toast .nt-title{ font-size:12.5px; font-weight:700; font-family:'JetBrains Mono',monospace; }
-  .notif-toast .nt-desc{ font-size:11.5px; color:#C9D5DF; margin-top:2px; }
+  .notif-toast .nt-title{ font-size:12.5px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--ink); }
+  .notif-toast .nt-desc{ font-size:11.5px; color:var(--ink-muted); margin-top:2px; }
   .notif-hist-list{ display:flex; flex-direction:column; gap:2px; max-height:60vh; overflow-y:auto; }
   .notif-hist-item{
     display:flex; align-items:flex-start; gap:10px; padding:11px 4px; border-bottom:1px solid var(--line);
@@ -949,29 +950,7 @@ function openNotifHistory(){
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('notifHistOverlay'); });
 }
 
-// 가벼운 필드만 뽑아서 "지난 세션에 마지막으로 본 상태"로 기기에 저장 (성적서 이미지 등 큰 데이터는 제외)
-function saveRecordsSnapshotForCatchup(data){
-  try{
-    const lite = data.map(r => ({
-      id: r.id, lot: r.lot, product: r.product,
-      status: r.status, statusCode: r.statusCode || '',
-      certCount: (r.certificates || []).length
-    }));
-    localStorage.setItem('blockTracker_lastSeenSnapshot', JSON.stringify(lite));
-  }catch(e){ /* 저장 실패해도 알림 기능 자체는 계속 동작하게 무시 */ }
-}
-
-function loadCachedRecordsSnapshotMap(){
-  try{
-    const raw = localStorage.getItem('blockTracker_lastSeenSnapshot');
-    if(!raw) return null;
-    const arr = JSON.parse(raw);
-    return new Map(arr.map(r => [r.id, r]));
-  }catch(e){ return null; }
-}
-
-// 현재 데이터 전체를 "마지막으로 본 상태"와 통째로 비교. docChanges에 의존하지 않아서
-// 실시간 세션 중이든, 앱을 껐다 켜서 돌아온 경우든 동일하게 정확히 동작함.
+// 현재 데이터 전체를 "직전 스냅샷"과 비교해서 변경 엔트리를 만듦 (같은 세션 안에서만 비교 - 안정성 우선)
 function buildCatchupEntries(data, prevMap){
   const entries = [];
   const seenIds = new Set();
@@ -1002,6 +981,14 @@ function buildCatchupEntries(data, prevMap){
   });
 
   return entries;
+}
+
+function toLiteSnapshotMap(data){
+  return new Map(data.map(r => [r.id, {
+    id: r.id, lot: r.lot, product: r.product,
+    status: r.status, statusCode: r.statusCode || '',
+    certCount: (r.certificates || []).length
+  }]));
 }
 
 // 화면 상태에 맞게 토스트(여러 건이면 요약 1개) 또는 OS 알림으로 표시하고, 이력에는 항상 개별 기록
@@ -1038,25 +1025,25 @@ function waitForFirebase(){
   });
 }
 
-let lastKnownSnapshotMap = null; // null이면 비교 기준이 아직 없는 상태(진짜 첫 방문)
+// 같은 세션 안에서만 비교 기준을 유지함 (기기에 저장해서 세션을 넘나들며 비교하던 방식은
+// 캐시 오차로 오탐이 발생해 제거함 - 켜져있는 동안의 실시간 감지만 확실하게 하는 쪽을 택함)
+let lastKnownSnapshotMap = null;
 
 function initRealtimeSync(){
   document.getElementById('list').innerHTML = '<div class="loading">불러오는 중...</div>';
-  lastKnownSnapshotMap = loadCachedRecordsSnapshotMap(); // 지난 세션 종료 시점 상태 (없으면 null)
+  lastKnownSnapshotMap = null;
   window.fbWatchRecords(
     (data) => {
+      const prevMap = lastKnownSnapshotMap;
       records = data;
       render();
-      const prevMap = lastKnownSnapshotMap;
       if(notifEnabled && prevMap){
         const entries = buildCatchupEntries(data, prevMap);
-        // 한 번에 20건 넘게 잡히면 실시간 변경이 아니라 기준선 오차일 가능성이 높아 조용히 넘어감
         if(entries.length > 0 && entries.length <= 20){
           dispatchNotifEntries(entries);
         }
       }
-      lastKnownSnapshotMap = new Map(data.map(r => [r.id, r]));
-      saveRecordsSnapshotForCatchup(data);
+      lastKnownSnapshotMap = toLiteSnapshotMap(data);
     },
     (err) => { showToast('실시간 동기화 연결 실패 - 새로고침 해주세요'); }
   );
