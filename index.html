@@ -105,7 +105,8 @@
       window.fbWatchRecords = function(onData, onError){
         onSnapshot(recordsCol, (snap)=>{
           const data = snap.docs.map(d => d.data());
-          onData(data);
+          const changes = snap.docChanges().map(c => ({ type: c.type, data: c.doc.data() }));
+          onData(data, changes);
         }, (err)=>{
           console.error('Firestore watch error:', err);
           if(onError) onError(err);
@@ -252,6 +253,44 @@
     font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:8px; cursor:pointer; white-space:nowrap;
   }
   .logout-btn:hover{ background:rgba(255,255,255,.18); }
+  .logout-btn.notif-on{ background:rgba(21,115,71,.35); border-color:#4FAE7C; color:#DFF6E9; }
+  .bell-icon-btn{
+    position:relative; width:33px; height:33px; border-radius:8px; flex-shrink:0;
+    background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#DCE5EC;
+    font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .bell-icon-btn:hover{ background:rgba(255,255,255,.18); }
+  .notif-badge{
+    position:absolute; top:-5px; right:-5px; min-width:16px; height:16px; padding:0 3px;
+    background:var(--danger); color:#fff; border-radius:10px; font-size:9.5px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; line-height:1; border:2px solid var(--steel-dark);
+  }
+  .notif-toast-wrap{
+    position:fixed; top:14px; left:0; right:0; z-index:60;
+    display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none;
+  }
+  .notif-toast{
+    max-width:420px; width:calc(100% - 32px);
+    background:var(--steel-dark); color:#fff; border-radius:12px; padding:11px 14px;
+    box-shadow:0 6px 18px rgba(0,0,0,.28); display:flex; align-items:flex-start; gap:9px;
+    opacity:0; transform:translateY(-10px); transition:opacity .25s ease, transform .25s ease;
+    pointer-events:auto;
+  }
+  .notif-toast.show{ opacity:1; transform:translateY(0); }
+  .notif-toast .nt-icon{ font-size:16px; flex-shrink:0; margin-top:1px; }
+  .notif-toast .nt-body{ flex:1; min-width:0; }
+  .notif-toast .nt-title{ font-size:12.5px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+  .notif-toast .nt-desc{ font-size:11.5px; color:#C9D5DF; margin-top:2px; }
+  .notif-hist-list{ display:flex; flex-direction:column; gap:2px; max-height:60vh; overflow-y:auto; }
+  .notif-hist-item{
+    display:flex; align-items:flex-start; gap:10px; padding:11px 4px; border-bottom:1px solid var(--line);
+  }
+  .notif-hist-item:last-child{ border-bottom:none; }
+  .notif-hist-item .nh-icon{ font-size:16px; flex-shrink:0; margin-top:1px; }
+  .notif-hist-item .nh-body{ flex:1; min-width:0; }
+  .notif-hist-item .nh-title{ font-size:13px; font-weight:700; font-family:'JetBrains Mono',monospace; color:var(--ink); }
+  .notif-hist-item .nh-desc{ font-size:12px; color:var(--ink-muted); margin-top:2px; }
+  .notif-hist-item .nh-time{ font-size:10.5px; color:var(--ink-muted); white-space:nowrap; flex-shrink:0; }
   .stats-row{ display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
   .stat-chip{
     display:flex; align-items:center; gap:5px;
@@ -606,6 +645,8 @@
         <div class="subtitle" id="subtitle">의약품 시험검사 & Block Batch 통합관리</div>
       </div>
       <div style="display:flex; gap:8px; align-items:flex-start;">
+        <button class="bell-icon-btn" id="notifHistoryBtn" title="알림 기록" style="display:none;">🔔<span class="notif-badge" id="notifBadge" style="display:none;"></span></button>
+        <button class="logout-btn" id="notifBtn" title="다른 사람이 등록·처리하면 알려드려요">🔔 알림 켜기</button>
         <button class="logout-btn" id="resetAllBtn" style="display:none; background:rgba(255,255,255,.1); border-color:var(--amber);">전체 초기화</button>
         <button class="logout-btn" id="logoutBtn">로그아웃</button>
       </div>
@@ -757,6 +798,209 @@ function saveMyName(name){
   try{ localStorage.setItem('blockTracker_myName', name); }catch(e){}
 }
 
+// ===================== 알림 (화면 켜져있을 땐 토스트, 백그라운드일 땐 브라우저 알림) ===================== //
+
+let notifEnabled = false;
+let notifHistory = [];   // 최근 알림 최대 10건: {icon, title, desc, at}
+let notifUnread = 0;
+
+function loadNotifPref(){
+  try{
+    notifEnabled = localStorage.getItem('blockTracker_notifEnabled') === '1';
+  }catch(e){ notifEnabled = false; }
+  updateNotifBtnUI();
+}
+
+function saveNotifPref(v){
+  notifEnabled = v;
+  try{ localStorage.setItem('blockTracker_notifEnabled', v ? '1' : '0'); }catch(e){}
+  updateNotifBtnUI();
+}
+
+function updateNotifBtnUI(){
+  const btn = document.getElementById('notifBtn');
+  if(btn){
+    if(notifEnabled){
+      btn.textContent = '🔔 알림 켜짐';
+      btn.classList.add('notif-on');
+    } else {
+      btn.textContent = '🔔 알림 켜기';
+      btn.classList.remove('notif-on');
+    }
+  }
+  const bell = document.getElementById('notifHistoryBtn');
+  if(bell) bell.style.display = notifEnabled ? 'flex' : 'none';
+}
+
+async function toggleNotif(){
+  if(notifEnabled){
+    saveNotifPref(false);
+    showToast('알림을 껐어요');
+    return;
+  }
+  // 화면 켜져있을 때 토스트 + 알림기록은 권한 없이도 동작. OS 알림은 권한 있으면 추가로 켬.
+  saveNotifPref(true);
+  showToast('알림을 켰어요 - 다른 분이 등록·처리하면 알려드려요');
+  if('Notification' in window && Notification.permission === 'default'){
+    Notification.requestPermission();
+  }
+}
+
+const NOTIF_STATUS_LABEL = { testing:'시험검사중', blocked:'블락중', released:'해제됨' };
+
+function relTime(iso){
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if(diff < 60) return '방금 전';
+  if(diff < 3600) return Math.floor(diff / 60) + '분 전';
+  if(diff < 86400) return Math.floor(diff / 3600) + '시간 전';
+  return Math.floor(diff / 86400) + '일 전';
+}
+
+function updateNotifBadge(){
+  const badge = document.getElementById('notifBadge');
+  if(!badge) return;
+  if(notifUnread > 0){
+    badge.textContent = notifUnread > 9 ? '9+' : String(notifUnread);
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function pushNotifHistory(entry){
+  notifHistory.unshift(entry);
+  notifHistory = notifHistory.slice(0, 10);
+  notifUnread = Math.min(notifUnread + 1, 99);
+  updateNotifBadge();
+}
+
+function getOrCreateToastWrap(){
+  let wrap = document.getElementById('notifToastWrap');
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'notifToastWrap';
+    wrap.className = 'notif-toast-wrap';
+    document.body.appendChild(wrap);
+  }
+  return wrap;
+}
+
+function showChangeToast(entry){
+  const wrap = getOrCreateToastWrap();
+  const el = document.createElement('div');
+  el.className = 'notif-toast';
+  el.innerHTML = `<span class="nt-icon">${entry.icon}</span><div class="nt-body"><div class="nt-title">${escapeHtml(entry.title)}</div>${entry.desc ? `<div class="nt-desc">${escapeHtml(entry.desc)}</div>` : ''}</div>`;
+  wrap.appendChild(el);
+  requestAnimationFrame(()=> el.classList.add('show'));
+  setTimeout(()=>{
+    el.classList.remove('show');
+    setTimeout(()=> el.remove(), 350);
+  }, 3800);
+}
+
+function openNotifHistory(){
+  notifUnread = 0;
+  updateNotifBadge();
+  closeOverlay('notifHistOverlay');
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.id = 'notifHistOverlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>알림 기록</h2>
+      ${notifHistory.length === 0 ? '<div class="timeline-empty">아직 알림이 없어요</div>' : `
+      <div class="notif-hist-list">
+        ${notifHistory.map(e => `
+          <div class="notif-hist-item">
+            <span class="nh-icon">${e.icon}</span>
+            <div class="nh-body">
+              <div class="nh-title">${escapeHtml(e.title)}</div>
+              ${e.desc ? `<div class="nh-desc">${escapeHtml(e.desc)}</div>` : ''}
+            </div>
+            <span class="nh-time">${relTime(e.at)}</span>
+          </div>`).join('')}
+      </div>`}
+      <div class="modal-actions">
+        <button class="btn-cancel" style="flex:1;" onclick="closeOverlay('notifHistOverlay')">닫기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('notifHistOverlay'); });
+}
+
+// Firestore 변경분(docChanges)을 알림 엔트리로 변환. 내가 방금 한 처리는 화면에 바로 보이니 제외.
+function buildNotifEntries(changes, prevMap){
+  const entries = [];
+  changes.forEach(ch => {
+    const r = ch.data;
+    if(!r || !r.id) return;
+    let icon = '', title = '', desc = '', actor = '';
+
+    if(ch.type === 'added'){
+      icon = '🆕';
+      title = `${r.lot} 신규 등록`;
+      desc = `${r.product || ''} · ${NOTIF_STATUS_LABEL[r.status] || r.status}`;
+      actor = r.registeredBy || '';
+    } else if(ch.type === 'modified'){
+      const prev = prevMap.get(r.id);
+      if(prev && prev.status !== r.status){
+        icon = r.status === 'blocked' ? '⛔' : (r.status === 'released' ? '✅' : '🔬');
+        title = r.lot;
+        desc = `${NOTIF_STATUS_LABEL[prev.status] || prev.status} → ${NOTIF_STATUS_LABEL[r.status] || r.status}`;
+        actor = r.releasedBy || r.testFailBy || '';
+      } else if(prev && (r.certificates || []).length > (prev.certificates || []).length){
+        icon = '🧾';
+        title = `${r.lot} 성적서 첨부`;
+        desc = r.product || '';
+        const lastCert = (r.certificates || [])[r.certificates.length - 1];
+        actor = lastCert ? (lastCert.uploadedBy || '') : '';
+      } else {
+        return; // 단순 정보수정은 소음이 커서 생략
+      }
+    } else if(ch.type === 'removed'){
+      icon = '🗑';
+      title = `${r.lot} 삭제됨`;
+      desc = r.product || '';
+      actor = ''; // 삭제자는 기록이 없어 항상 표시
+    }
+    if(!title) return;
+
+    // 내가 방금 한 행동이면 알림 생략 (본인 작업은 이미 화면에 반영돼 보임)
+    if(actor && myName && actor.trim().toLowerCase() === myName.trim().toLowerCase()) return;
+
+    entries.push({ icon, title, desc, at: new Date().toISOString() });
+  });
+  return entries;
+}
+
+// - 최초 스냅샷(전체 로딩)은 건너뜀
+// - 화면이 보이는 중엔 토스트(여러 건이면 요약 1개), 백그라운드면 OS 알림 + 이력에는 항상 개별 기록
+function handleChangeNotifications(changes, prevMap){
+  if(!notifEnabled) return;
+  const entries = buildNotifEntries(changes, prevMap);
+  if(entries.length === 0) return;
+
+  entries.forEach(e => pushNotifHistory(e));
+
+  const isHidden = document.visibilityState !== 'visible' || !document.hasFocus();
+  if(isHidden){
+    if('Notification' in window && Notification.permission === 'granted'){
+      entries.slice(0, 5).forEach(e => {
+        try{
+          const n = new Notification(`${e.icon} ${e.title}`, { body: e.desc, icon: '/icon-192.png', tag: 'batchmate-' + Math.random() });
+          n.onclick = () => { window.focus(); n.close(); };
+        }catch(err){ console.warn('알림 표시 실패:', err); }
+      });
+    }
+  } else {
+    if(entries.length <= 3){
+      entries.forEach(e => showChangeToast(e));
+    } else {
+      showChangeToast({ icon: '🔔', title: `${entries.length}건 업데이트됨`, desc: '알림 기록에서 자세히 확인하세요' });
+    }
+  }
+}
+
 function waitForFirebase(){
   return new Promise((resolve)=>{
     const check = ()=>{
@@ -767,10 +1011,21 @@ function waitForFirebase(){
   });
 }
 
+let notifFirstSnapshot = true;
+
 function initRealtimeSync(){
   document.getElementById('list').innerHTML = '<div class="loading">불러오는 중...</div>';
+  notifFirstSnapshot = true;
   window.fbWatchRecords(
-    (data) => { records = data; render(); },
+    (data, changes) => {
+      const prevMap = new Map(records.map(r => [r.id, r]));
+      records = data;
+      render();
+      if(!notifFirstSnapshot && changes){
+        handleChangeNotifications(changes, prevMap);
+      }
+      notifFirstSnapshot = false;
+    },
     (err) => { showToast('실시간 동기화 연결 실패 - 새로고침 해주세요'); }
   );
 }
@@ -3276,6 +3531,8 @@ document.getElementById('exportExcel').addEventListener('click', ()=>{ closeFabM
 document.getElementById('logoutBtn').addEventListener('click', ()=>{
   showAppConfirm('로그아웃 할까요?', '로그아웃', async ()=>{ await window.fbLogout(); });
 });
+document.getElementById('notifBtn').addEventListener('click', toggleNotif);
+document.getElementById('notifHistoryBtn').addEventListener('click', openNotifHistory);
 document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; render(); });
 document.getElementById('sortSelect').addEventListener('change', (e)=>{
   sortOption = e.target.value;
@@ -3433,6 +3690,7 @@ function showAdminLoginScreen(){
 
 (async function init(){
   loadMyName();
+  loadNotifPref();
   await waitForFirebase();
   if(!window.__firebaseReady){
     showSetupNeeded();
