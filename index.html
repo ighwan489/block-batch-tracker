@@ -806,8 +806,10 @@ let notifUnread = 0;
 
 function loadNotifPref(){
   try{
-    notifEnabled = localStorage.getItem('blockTracker_notifEnabled') === '1';
-  }catch(e){ notifEnabled = false; }
+    const stored = localStorage.getItem('blockTracker_notifEnabled');
+    notifEnabled = stored === null ? true : stored === '1'; // 처음 방문이면 기본 켜짐
+  }catch(e){ notifEnabled = true; }
+  loadNotifHistory();
   updateNotifBtnUI();
 }
 
@@ -867,10 +869,22 @@ function updateNotifBadge(){
   }
 }
 
+function loadNotifHistory(){
+  try{
+    const raw = localStorage.getItem('blockTracker_notifHistory');
+    if(raw) notifHistory = JSON.parse(raw).slice(0, 10);
+  }catch(e){ notifHistory = []; }
+}
+
+function saveNotifHistoryToStorage(){
+  try{ localStorage.setItem('blockTracker_notifHistory', JSON.stringify(notifHistory)); }catch(e){}
+}
+
 function pushNotifHistory(entry){
   notifHistory.unshift(entry);
   notifHistory = notifHistory.slice(0, 10);
   notifUnread = Math.min(notifUnread + 1, 99);
+  saveNotifHistoryToStorage();
   updateNotifBadge();
 }
 
@@ -928,45 +942,44 @@ function openNotifHistory(){
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeOverlay('notifHistOverlay'); });
 }
 
-// Firestore 변경분(docChanges)을 알림 엔트리로 변환. 내가 방금 한 처리는 화면에 바로 보이니 제외.
+// Firestore 변경분(docChanges)을 알림 엔트리로 변환.
 function buildNotifEntries(changes, prevMap){
   const entries = [];
   changes.forEach(ch => {
     const r = ch.data;
     if(!r || !r.id) return;
-    let icon = '', title = '', desc = '', actor = '';
+    let icon = '', title = '', desc = '';
 
     if(ch.type === 'added'){
       icon = '🆕';
       title = `${r.lot} 신규 등록`;
-      desc = `${r.product || ''} · ${NOTIF_STATUS_LABEL[r.status] || r.status}`;
-      actor = r.registeredBy || '';
+      desc = `${r.product || ''} · ${NOTIF_STATUS_LABEL[r.status] || r.status}${r.registeredBy ? ' · ' + r.registeredBy : ''}`;
     } else if(ch.type === 'modified'){
       const prev = prevMap.get(r.id);
       if(prev && prev.status !== r.status){
         icon = r.status === 'blocked' ? '⛔' : (r.status === 'released' ? '✅' : '🔬');
         title = r.lot;
-        desc = `${NOTIF_STATUS_LABEL[prev.status] || prev.status} → ${NOTIF_STATUS_LABEL[r.status] || r.status}`;
-        actor = r.releasedBy || r.testFailBy || '';
+        const actor = r.releasedBy || r.testFailBy || '';
+        desc = `${NOTIF_STATUS_LABEL[prev.status] || prev.status} → ${NOTIF_STATUS_LABEL[r.status] || r.status}${actor ? ' · ' + actor : ''}`;
       } else if(prev && (r.certificates || []).length > (prev.certificates || []).length){
         icon = '🧾';
         title = `${r.lot} 성적서 첨부`;
         desc = r.product || '';
-        const lastCert = (r.certificates || [])[r.certificates.length - 1];
-        actor = lastCert ? (lastCert.uploadedBy || '') : '';
+      } else if(prev && (prev.statusCode || '') !== (r.statusCode || '')){
+        icon = '◐';
+        title = `${r.lot} 상태값 변경`;
+        const oldLabel = prev.statusCode ? statusCodeLabel(prev.statusCode) : '(없음)';
+        const newLabel = r.statusCode ? statusCodeLabel(r.statusCode) : '(없음)';
+        desc = `${oldLabel} → ${newLabel}`;
       } else {
-        return; // 단순 정보수정은 소음이 커서 생략
+        return; // 단순 정보수정(제품명·메모 등)은 소음이 커서 생략
       }
     } else if(ch.type === 'removed'){
       icon = '🗑';
       title = `${r.lot} 삭제됨`;
       desc = r.product || '';
-      actor = ''; // 삭제자는 기록이 없어 항상 표시
     }
     if(!title) return;
-
-    // 내가 방금 한 행동이면 알림 생략 (본인 작업은 이미 화면에 반영돼 보임)
-    if(actor && myName && actor.trim().toLowerCase() === myName.trim().toLowerCase()) return;
 
     entries.push({ icon, title, desc, at: new Date().toISOString() });
   });
