@@ -105,8 +105,7 @@
       window.fbWatchRecords = function(onData, onError){
         onSnapshot(recordsCol, (snap)=>{
           const data = snap.docs.map(d => d.data());
-          const changes = snap.docChanges().map(c => ({ type: c.type, data: c.doc.data() }));
-          onData(data, changes);
+          onData(data, snap.metadata.fromCache);
         }, (err)=>{
           console.error('Firestore watch error:', err);
           if(onError) onError(err);
@@ -912,6 +911,13 @@ function showChangeToast(entry){
   }, 3800);
 }
 
+function clearNotifHistory(){
+  notifHistory = [];
+  saveNotifHistoryToStorage();
+  closeOverlay('notifHistOverlay');
+  showToast('알림 기록을 지웠어요');
+}
+
 function openNotifHistory(){
   notifUnread = 0;
   updateNotifBadge();
@@ -935,6 +941,7 @@ function openNotifHistory(){
           </div>`).join('')}
       </div>`}
       <div class="modal-actions">
+        ${notifHistory.length > 0 ? `<button class="btn-cancel" onclick="clearNotifHistory()">기록 지우기</button>` : ''}
         <button class="btn-cancel" style="flex:1;" onclick="closeOverlay('notifHistOverlay')">닫기</button>
       </div>
     </div>`;
@@ -1037,12 +1044,20 @@ function initRealtimeSync(){
   document.getElementById('list').innerHTML = '<div class="loading">불러오는 중...</div>';
   lastKnownSnapshotMap = loadCachedRecordsSnapshotMap(); // 지난 세션 종료 시점 상태 (없으면 null)
   window.fbWatchRecords(
-    (data) => {
-      const prevMap = lastKnownSnapshotMap;
+    (data, fromCache) => {
       records = data;
       render();
+      if(fromCache){
+        // 서버 확인 전 임시 로컬 캐시 데이터는 오래됐을 수 있어 알림 비교/기준선 저장에 쓰지 않음
+        return;
+      }
+      const prevMap = lastKnownSnapshotMap;
       if(notifEnabled && prevMap){
-        dispatchNotifEntries(buildCatchupEntries(data, prevMap));
+        const entries = buildCatchupEntries(data, prevMap);
+        // 한 번에 20건 넘게 잡히면 실시간 변경이 아니라 기준선 오차일 가능성이 높아 조용히 넘어감
+        if(entries.length > 0 && entries.length <= 20){
+          dispatchNotifEntries(entries);
+        }
       }
       lastKnownSnapshotMap = new Map(data.map(r => [r.id, r]));
       saveRecordsSnapshotForCatchup(data);
