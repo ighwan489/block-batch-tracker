@@ -1025,19 +1025,22 @@ function waitForFirebase(){
 }
 
 let notifFirstSnapshot = true;
+let lastKnownSnapshotMap = new Map(); // Firestore 원본 스냅샷만 담는 맵 - 낙관적 UI 업데이트로 오염되지 않도록 별도 관리
 
 function initRealtimeSync(){
   document.getElementById('list').innerHTML = '<div class="loading">불러오는 중...</div>';
   notifFirstSnapshot = true;
+  lastKnownSnapshotMap = new Map();
   window.fbWatchRecords(
     (data, changes) => {
-      const prevMap = new Map(records.map(r => [r.id, r]));
+      const prevMap = lastKnownSnapshotMap;
       records = data;
       render();
       if(!notifFirstSnapshot && changes){
         handleChangeNotifications(changes, prevMap);
       }
       notifFirstSnapshot = false;
+      lastKnownSnapshotMap = new Map(data.map(r => [r.id, r]));
     },
     (err) => { showToast('실시간 동기화 연결 실패 - 새로고침 해주세요'); }
   );
