@@ -1009,7 +1009,7 @@ function dispatchNotifEntries(entries){
   if(entries.length === 0) return;
   entries.forEach(e => pushNotifHistory(e));
 
-  const isHidden = document.visibilityState !== 'visible' || !document.hasFocus();
+  const isHidden = document.visibilityState !== 'visible';
   if(isHidden){
     if('Notification' in window && Notification.permission === 'granted'){
       entries.slice(0, 5).forEach(e => {
