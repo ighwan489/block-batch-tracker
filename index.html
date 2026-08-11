@@ -991,6 +991,32 @@ function toLiteSnapshotMap(data){
   }]));
 }
 
+// 화면을 벗어나는 순간(백그라운드 전환·탭 종료 직전)의 확실한 라이브 데이터를 기기에 저장해둠.
+// 접속 시점이 아니라 "떠나는 시점"에 저장해야, 아직 다 안 불러와진 애매한 데이터가 기준이 되는 걸 막을 수 있음.
+function saveLeaveSnapshot(){
+  if(!records || records.length === 0) return;
+  try{
+    const lite = records.map(r => ({
+      id: r.id, lot: r.lot, product: r.product,
+      status: r.status, statusCode: r.statusCode || '',
+      certCount: (r.certificates || []).length
+    }));
+    localStorage.setItem('blockTracker_leaveSnapshot', JSON.stringify(lite));
+  }catch(e){ /* 저장 실패해도 실시간 알림 자체는 계속 동작하게 무시 */ }
+}
+
+function loadLeaveSnapshotMap(){
+  try{
+    const raw = localStorage.getItem('blockTracker_leaveSnapshot');
+    if(!raw) return null;
+    const arr = JSON.parse(raw);
+    return new Map(arr.map(r => [r.id, r]));
+  }catch(e){ return null; }
+}
+
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') saveLeaveSnapshot(); });
+window.addEventListener('pagehide', saveLeaveSnapshot);
+
 // 화면 상태에 맞게 토스트(여러 건이면 요약 1개) 또는 OS 알림으로 표시하고, 이력에는 항상 개별 기록
 function dispatchNotifEntries(entries){
   if(entries.length === 0) return;
@@ -1015,6 +1041,12 @@ function dispatchNotifEntries(entries){
   }
 }
 
+// 완전히 종료됐다 돌아온 경우: 팝업 없이 "기록"에만 조용히 남김 (놓친 걸 확인하는 용도, 실시간 알림과는 분리)
+function logCatchupSilently(entries){
+  if(entries.length === 0 || entries.length > 20) return; // 너무 많으면 기준선이 못 미더우니 생략
+  entries.forEach(e => pushNotifHistory({ ...e, desc: e.desc ? `${e.desc} · 자리 비운 사이` : '자리 비운 사이' }));
+}
+
 function waitForFirebase(){
   return new Promise((resolve)=>{
     const check = ()=>{
@@ -1032,17 +1064,26 @@ let lastKnownSnapshotMap = null;
 function initRealtimeSync(){
   document.getElementById('list').innerHTML = '<div class="loading">불러오는 중...</div>';
   lastKnownSnapshotMap = null;
+  let isFirstSnapshot = true;
+  const leaveSnapshotMap = loadLeaveSnapshotMap(); // 지난번 떠날 때 저장해둔 상태 (없으면 null)
+
   window.fbWatchRecords(
     (data) => {
       const prevMap = lastKnownSnapshotMap;
       records = data;
       render();
-      if(notifEnabled && prevMap){
+
+      if(isFirstSnapshot && notifEnabled && leaveSnapshotMap){
+        // 완전 재접속: 팝업 없이 기록에만 조용히 반영
+        logCatchupSilently(buildCatchupEntries(data, leaveSnapshotMap));
+      } else if(!isFirstSnapshot && notifEnabled && prevMap){
+        // 같은 세션 안 실시간 변경: 기존처럼 토스트/OS알림 + 기록
         const entries = buildCatchupEntries(data, prevMap);
         if(entries.length > 0 && entries.length <= 20){
           dispatchNotifEntries(entries);
         }
       }
+      isFirstSnapshot = false;
       lastKnownSnapshotMap = toLiteSnapshotMap(data);
     },
     (err) => { showToast('실시간 동기화 연결 실패 - 새로고침 해주세요'); }
